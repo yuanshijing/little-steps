@@ -31,23 +31,35 @@
     let draftSequence = 0;
     let dragSort;
     let audio;
+    const remindersAudible = () => vNow().settings.reminderSound !== false;
     async function armAudio() {
       const Context = window.AudioContext || window.webkitAudioContext;
-      if (!vNow().settings.sound || !Context) return false;
+      if ((!vNow().settings.sound && !remindersAudible()) || !Context) return false;
       audio ??= new Context();
       if (audio.state === 'suspended') await audio.resume().catch(() => {});
       return audio.state === 'running';
     }
-    function playSound(level = 1) {
+    function playSound() {
       if (!vNow().settings.sound || audio?.state !== 'running') return;
       const notes = [
         [659, 0, .044, .18], [784, .045, .035, .22], [1047, .095, .038, .26],
         [1319, .13, .020, .21], [1568, .155, .015, .19], [2093, .24, .010, .17],
         [1760, .303, .009, .23], [2637, .37, .006, .19],
       ];
-      if (level === 2) notes.push([1047, .24, .022, .40], [3136, .41, .006, .24]);
+      playNotes(notes);
+    }
+    function playCompletionSound() {
+      if (vNow().settings.sound) void armAudio().then(ready=>{ if (ready) playSound(); }).catch(()=>{});
+    }
+    function playReminderSound(delay = 0) {
+      if (!remindersAudible() || audio?.state !== 'running') return false;
+      playNotes([[740,0,.032,.13],[988,.115,.026,.20]],delay);
+      return true;
+    }
+    function playNotes(notes,delay = 0) {
+      const when = audio.currentTime + delay;
       for (const [frequency, offset, volume, duration] of notes) {
-        const start = audio.currentTime + offset;
+        const start = when + offset;
         const osc = audio.createOscillator();
         const gain = audio.createGain();
         osc.type = 'sine';
@@ -79,8 +91,8 @@
           sparks.append(spark);
         }
         el.append(sparks);
-        void armAudio().then(ready => { if (ready) playSound(award.level); }).catch(() => {});
       }
+      playCompletionSound();
       document.body.append(el);
       setTimeout(() => el.remove(), 3700);
     }
@@ -129,7 +141,6 @@
       const state = getState();
       const removed = V.allReminderIds(v).filter(id => v.settings.times[id].removed);
       return card('固定提醒和自定义任务', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。你也可以点「现在聊聊」提前进入对应对话。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
-        ${state.settings.quiet ? `<p class="subtle">免打扰时段 ${esc(state.settings.quietStart)}–${esc(state.settings.quietEnd)}。需要在这段时间提醒，可单独勾选对应任务。</p>` : ''}
         <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
         <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend>
         <div id="reminder-drafts"></div>${btn('addReminder','＋ 添加一项')}<p class="subtle">可连续添加多项。最后点「保存提醒」统一生效。</p></fieldset>
@@ -143,13 +154,16 @@
         <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>`);
     }
     function settingsPage(v) {
-      return card('奖励与音效', `<form data-v1-form="settings">
-        <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
-        <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div><p class="subtle">睡前奖励为静音。</p>
+      return card('提醒与奖励音效', `<form data-v1-form="settings">
+        <label><input type="checkbox" name="reminderSound" ${remindersAudible() ? 'checked' : ''}> 播放定时提醒提示音</label>
+        <div class="controls">${btn('soundDemo','试听定时提醒音','reminder')}</div>
+        <p class="subtle">到点提醒会响。你回复后的引导消息保持静音。首次使用时，可点击试听开启网页播放。</p>
+        <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放任务完成奖励音</label>
+        <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
-        <button class="primary">保存奖励设置</button></form>`) +
+        <button class="primary">保存音效和奖励设置</button></form>`) +
         card('教练偏好与数据', `<div class="controls">
-          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格、免打扰与数据导出</button>
+          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
         card('模型连接', `<p>${esc(modelStatus)}</p>${api ? (modelEnabled ? btn('connection','测试已配置模型') : '') +
           `<form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
@@ -314,7 +328,7 @@
     function updateReminderStatuses(v) {
       for (const node of document.querySelectorAll('[data-reminder-status]')) {
         const id = node.dataset.reminderStatus;
-        const status = window.PlanetDashboard.reminderStatus(v, date(), id, getState().settings);
+        const status = window.PlanetDashboard.reminderStatus(v, date(), id);
         node.textContent = status;
         const button = node.parentElement.querySelector('.reminder-open');
         const label = status === '对话中' ? '继续对话' : '现在聊聊';
@@ -340,7 +354,7 @@
         const enabled = Boolean(data['enabled_'+id]);
         const setting = s.times[id];
         if (setting.enabled && !enabled && v.active?.id === id) V.park(v,'主动跳过');
-        Object.assign(setting,{time,enabled,allowQuiet:Boolean(data['quiet_'+id])});
+        Object.assign(setting,{time,enabled});
         if (V.isCustom(v,id)) setting.title = P.clean(data['title_'+id],60);
       }
       for (const id of V.allReminderIds(v)) {
@@ -399,6 +413,7 @@
       toast('顺序已调整，保存提醒后生效');
     }
     document.addEventListener('pointerdown',event=>{
+      if (audio?.state !== 'running') void armAudio().catch(()=>{});
       const grip = event.target.closest('.reminder-grip');
       if (!grip || !event.isPrimary || event.button !== 0) return;
       const row = grip.closest('[data-saved-reminder]');
@@ -427,11 +442,15 @@
     document.addEventListener('pointerup',finishDrag);
     document.addEventListener('pointercancel',finishDrag);
     document.addEventListener('lostpointercapture',finishDrag);
+    document.addEventListener('keydown',()=>{
+      if (audio?.state !== 'running') void armAudio().catch(()=>{});
+    });
     function configureRewards(data) {
       const s = vNow().settings;
       if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
       for (const key of Object.keys(levelName)) s[key] = P.bounded(data[key],1,1000,s[key]);
       s.sound = Boolean(data.sound);
+      s.reminderSound = Boolean(data.reminderSound);
       toast('奖励设置已保存');
     }
     function recognize(id) {
@@ -510,6 +529,7 @@
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
+      if (audio?.state !== 'running' && b?.dataset.v1 !== 'soundDemo') void armAudio().catch(()=>{});
       if (!b) return;
       const {v1: name,value} = b.dataset, v = vNow(), state = getState();
       try {
@@ -544,9 +564,13 @@
         if (name === 'voice') return recognize(value);
         if (name === 'connection') return void checkConnection(true);
         if (name === 'soundDemo') {
-          if (!v.settings.sound) return toast('请先启用并保存奖励音效设置');
+          const reminder = value === 'reminder';
+          if (reminder ? !remindersAudible() : !v.settings.sound) return toast('请先启用并保存对应的音效设置');
           return void armAudio().then(ready => {
-            if (ready) playSound();
+            if (ready) {
+              if (reminder) playReminderSound();
+              else playSound();
+            }
             else toast('浏览器未能播放音效');
           }).catch(() => toast('浏览器未能播放音效'));
         }
@@ -562,8 +586,11 @@
         }
         if (name === 'choice') {
           const [revision,index]=value.split('/');
+          const record = v.records[v.active?.key];
+          const wasComplete = record?.completedAt != null;
           const r=V.choose(state,revision,Number(index));
           if (r?.award) reward(r.award);
+          else if (r && !wasComplete && record?.completedAt != null) playCompletionSound();
           modelOptions=[];
         }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
@@ -657,17 +684,23 @@
     });
     if (api) void checkConnection();
     return {
-      screen, selectTab, clock,
+      screen, selectTab, clock, playReminderSound, playCompletionSound, remindersAudible,
       tick: now => {
         const v = vNow();
         const count = v.messages.length;
         if (!V.tick(getState(), now)) return;
+        const fresh = v.messages.slice(count);
+        const sleepSent = fresh.some(row=>row.source==='schedule' && row.reminderId==='sleep');
+        const alerts = fresh.filter(row=>row.source==='schedule' ||
+          (row.source==='review' && (row.reviewKind==='weekly' || !sleepSent)));
+        const played = alerts.map((_,index)=>playReminderSound(index*.35)).some(Boolean);
         save();
         if (page() === 'v1') paint();
         if (page() === 'v1reminders') updateReminderStatuses(v);
         if (page() !== 'v1' && v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
-        if (v.messages.length > count && window.Notification?.permission === 'granted') {
-          try { new Notification('小步星球 · 小星', { body: '打开对话查看你的日程提醒。' }); } catch { /* In-page message persists. */ }
+        if (fresh.length && window.Notification?.permission === 'granted') {
+          try { new Notification('小步星球 · 小星', { body: '打开对话查看你的日程提醒。',
+            silent:played || !alerts.length || !remindersAudible() }); } catch { /* In-page message persists. */ }
         }
       },
     };

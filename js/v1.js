@@ -60,12 +60,6 @@
     const order = Array.isArray(v.settings.reminderOrder) ? v.settings.reminderOrder : [];
     return [...new Set([...order.filter(id=>ids.includes(id)),...ids])];
   }
-  function quietAt(settings,time) {
-    return settings.quiet && (settings.quietStart <= settings.quietEnd
-      ? time >= settings.quietStart && time < settings.quietEnd
-      : time >= settings.quietStart || time < settings.quietEnd);
-  }
-  const allowsQuiet = (v,id) => ['wake','sleep'].includes(id) || v.settings.times[id]?.allowQuiet === true;
   const title = (v, id) => isCustom(v, id) ? v.settings.times[id].title : id === 'return' ? '偏航回归' : data[id]?.title;
   function chooseQuote(v, day, replace = false) {
     const week = monday(day);
@@ -155,7 +149,7 @@
     if (item.notifiedAt != null) return false;
     item.notifiedAt = now.getTime();
     message(v, '「' + title(v,item.id) + '」的定时提醒到了。' + (queued ? '可以点下方按钮处理这条提醒。' : '可以在当前对话里回复。'),
-      'coach', {source:'schedule',at:item.notifiedAt});
+      'coach', {source:'schedule',reminderId:item.id,at:item.notifiedAt});
     event(v,queued ? 'reminder_queued' : 'reminder',now,{id:item.id,key:item.key,source:'schedule'});
     return true;
   }
@@ -167,7 +161,7 @@
       due: now.getTime() + v.settings.intervals.unanswered * M, attempts: 0, revision: P.uid() };
     const alreadyAnnounced = source === 'schedule' && item.notifiedAt != null;
     if (source === 'schedule' && !alreadyAnnounced) item.notifiedAt = now.getTime();
-    message(v, reminderText(state,v,item), 'coach', {source:alreadyAnnounced ? 'queued' : source, at:now.getTime()});
+    message(v, reminderText(state,v,item), 'coach', {source:alreadyAnnounced ? 'queued' : source,reminderId:item.id,at:now.getTime()});
     if (item.id === 'sleep') promptReview(v, 'daily', item.day, now);
     event(v, 'reminder', now, { id: item.id, key: item.key, source });
     return true;
@@ -185,7 +179,7 @@
     const text = kind === 'daily'
       ? '睡前复盘时间到了。今天有哪一步值得记下来？也可以说说哪里卡住了，或者今晚先休息。'
       : '到每周复盘时间了。这周哪一种做法最帮得上你？我们可以一起看看任务完成情况和偏航记录。';
-    message(v, text, 'coach', {source:'review', at:now.getTime()});
+    message(v, text, 'coach', {source:'review',reviewKind:kind,at:now.getTime()});
     return true;
   }
   function startReview(v,key) {
@@ -465,11 +459,9 @@
     }
     if (!state.settings.remind || state.settings.pausedUntil > time) return changed;
     const t = [now.getHours(), now.getMinutes()].map(x => String(x).padStart(2, '0')).join(':');
-    const q = state.settings;
-    const quiet = quietAt(q,t);
-    if (state.timer?.mode === 'deep' && state.timer.endsAt > time) return changed;
+    const deepFocus = state.timer?.mode === 'deep' && state.timer.endsAt > time;
     const a = v.active;
-    if ((!quiet || allowsQuiet(v,a?.id)) && a?.due != null && time >= a.due) {
+    if (!deepFocus && a?.due != null && time >= a.due) {
       if (a.attempts >= 2) park(v, '未记录');
       else {
         a.attempts++;
@@ -481,7 +473,7 @@
       changed = true;
     }
     const active = v.active;
-    if (!quiet && active?.stage === 'sustain' && ['am', 'pm'].includes(active.id)) {
+    if (!deepFocus && active?.stage === 'sustain' && ['am', 'pm'].includes(active.id)) {
       const wrap = v.settings.wrapTimes?.[active.id];
       if (P.timeOk(wrap) && t >= wrap && !v.records[active.key].wrapPromptAt) {
         v.records[active.key].wrapPromptAt = time;
@@ -491,7 +483,7 @@
       }
     }
     const week = monday(day);
-    if (!quiet && now.getDay() === v.settings.weekDay && t >= v.settings.weekTime && !v.weekly[week]) {
+    if (now.getDay() === v.settings.weekDay && t >= v.settings.weekTime && !v.weekly[week]) {
       const report = weekly(v, day);
       v.weekly[week] = report;
       promptReview(v, 'weekly', day, now);
@@ -503,17 +495,14 @@
       const delay = time - P.dueAt(day, setting.time);
       return delay < 60*M && (row.source !== 'schedule' || delay >= 0);
     });
-    if (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage)) {
-      const index = v.queue.findIndex(row=>!quiet || allowsQuiet(v,row.id));
-      if (index >= 0) {
-        const [next] = v.queue.splice(index,1);
-        changed = open(state, next.id, now, next.source) || changed;
-      }
+    if (v.queue.length && (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage))) {
+      const next = v.queue.shift();
+      changed = open(state,next.id,now,next.source) || changed;
     }
     for (const id of reminderIds(v)) {
       const setting = v.settings.times[id];
       const due = P.dueAt(day, setting.time);
-      if ((quiet && !allowsQuiet(v,id)) || !setting.enabled || time < due || time >= due + 30*M) continue;
+      if (!setting.enabled || time < due || time >= due + 30*M) continue;
       const pending = v.queue.find(row=>row.id===id && row.day===day);
       const recordForToday = v.records[day+'/'+id];
       if (pending) changed = announceScheduled(v,record(v,day,id),now) || changed;
@@ -677,6 +666,6 @@
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, quietAt, allowsQuiet, title, record, message, open, options, choose, park,
+  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, title, record, message, open, options, choose, park,
     tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });

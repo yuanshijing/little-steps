@@ -28,7 +28,7 @@
   };
   const clean = (value, limit) => String(value ?? '').trim().slice(0, limit);
   const defaultSettings = {
-    style: 'active', follow: 15, max: 2, quiet: true, quietStart: '23:00', quietEnd: '08:00',
+    style: 'active', follow: 15, max: 2,
     remind: true, pausedUntil: 0, nextDayTime: '09:00',
   };
   function createState(now = new Date()) {

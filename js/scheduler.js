@@ -4,12 +4,6 @@
 })(globalThis, P => {
   'use strict';
   const minute = 60000;
-  function quiet(settings, now) {
-    if (!settings.quiet || !P.timeOk(settings.quietStart) || !P.timeOk(settings.quietEnd)) return false;
-    const key = [now.getHours(), now.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
-    const { quietStart: start, quietEnd: end } = settings;
-    return start > end ? key >= start || key < end : key >= start && key < end;
-  }
   function addNotice(state, entry, now) {
     if (entry.taskId && ['scheduled', 'followup'].includes(entry.kind)) {
       for (const previous of state.inbox) {
@@ -33,7 +27,7 @@
     const settings = state.settings;
     const time = now.getTime();
     const day = P.dateKey(now);
-    if (!settings.remind || settings.pausedUntil > time || quiet(settings, now) ||
+    if (!settings.remind || settings.pausedUntil > time ||
         (state.timer?.mode === 'deep' && state.timer.endsAt > time)) return null;
     const candidates = P.schedule(state, day);
     const previousDeferred = Object.values(state.instances).filter(item =>
@@ -102,5 +96,5 @@
     P.event(state, 'timer_finished', new Date(timer.endsAt), { mode: timer.mode });
     return 'finished';
   }
-  return { quiet, tick, acknowledge, addTransition, startTimer, timerTick };
+  return { tick, acknowledge, addTransition, startTimer, timerTick };
 });

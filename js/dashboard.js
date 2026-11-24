@@ -42,13 +42,12 @@
   }
 
 
-  function reminderStatus(v, day, id, settings) {
+  function reminderStatus(v, day, id) {
     const row = v.records[day + '/' + id];
     if (v.active?.id === id && v.active.day === day) return '对话中';
     if (!v.settings.times[id].enabled && (!row || row.status === '待执行')) return '已关闭';
     if (row?.status && row.status !== '待执行') return row.status;
     if (row?.notifiedAt != null && v.queue.some(entry=>entry.day===day && entry.id===id)) return '已提醒 · 待处理';
-    if (settings && !V.allowsQuiet(v,id) && V.quietAt(settings,v.settings.times[id].time)) return '该时段免打扰';
     return '尚未提醒';
   }
 
@@ -58,7 +57,7 @@
     return `<fieldset class="reminder-group"><legend>提醒任务</legend>
       <p class="subtle">拖动每行左侧的手柄排序，也可以用上下箭头。排序后点「保存提醒」。</p>
       <div id="reminder-list">${V.displayReminderIds(v).map(id => {
-      const {time, enabled, allowQuiet} = v.settings.times[id];
+      const {time, enabled} = v.settings.times[id];
       const title = esc(V.title(v,id));
       const custom = V.isCustom(v,id);
       const active = v.active?.id === id && v.active.day === day;
@@ -69,9 +68,8 @@
         <div class="reminder-task"><label class="reminder-toggle">
         <input type="checkbox" name="enabled_${id}" aria-label="启用${title}提醒" ${enabled ? 'checked' : ''}>
         ${custom ? '<span>启用提醒</span>' : '<strong>' + title + '</strong>'}</label>
-        ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}
-        ${!['wake','sleep'].includes(id) ? `<label class="quiet-exception"><input type="checkbox" name="quiet_${id}" ${allowQuiet ? 'checked' : ''}> 免打扰时也提醒</label>` : ''}</div>
-        <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id, state.settings))}</span>
+        ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}</div>
+        <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id))}</span>
         <input type="time" class="field" name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
         <button type="button" class="secondary small reminder-open" data-v1="open" data-value="${esc(id)}" aria-label="${title} · ${active ? '继续对话' : '现在聊聊'}">${active ? '继续对话' : '现在聊聊'}</button>
         <button type="button" class="reminder-minus" data-v1="removeReminder" aria-label="移除${title}">−</button>

@@ -219,11 +219,8 @@
       <label>我偏好的通用启动动作 <input class="field" name="preferredStep" maxlength="150" placeholder="例：先写下一件两分钟内能做的事" value="${esc(state.memory.preferredStep)}"></label>
       <div class="cols"><label>跟进间隔（分钟） <input class="field" name="follow" type="number" min="1" max="60" value="${s.follow}" required></label>
       <label>最多追加提醒 <input class="field" name="max" type="number" min="0" max="3" value="${s.max}" required></label>
-      <label>免打扰开始 <input class="field" name="quietStart" type="time" value="${esc(s.quietStart)}" required></label>
-      <label>免打扰结束 <input class="field" name="quietEnd" type="time" value="${esc(s.quietEnd)}" required></label>
       <label>次日清单默认提示时间 <input class="field" name="nextDayTime" type="time" value="${esc(s.nextDayTime)}" required></label></div>
-      <div class="setting"><label><input type="checkbox" name="remind" ${s.remind ? 'checked' : ''}> 启用打开页面时的提醒</label>
-      <label><input type="checkbox" name="quiet" ${s.quiet ? 'checked' : ''}> 启用免打扰</label></div>
+      <div class="setting"><label><input type="checkbox" name="remind" ${s.remind ? 'checked' : ''}> 启用打开页面时的提醒</label></div>
       <div class="controls"><button class="primary">保存设置</button>${action('notification', '启用浏览器通知')}</div>
       </form><p>${s.pausedUntil > Date.now() ? '已暂停至 ' + esc(new Date(s.pausedUntil).toLocaleString('zh-CN')) : '监督未暂停'}</p>
       <div class="controls">${action('pause', '暂停监督 1 小时')}${action('resume', '恢复监督')}</div>`) +
@@ -452,8 +449,7 @@
       state.memory.preferredStep = P.clean(data.preferredStep, 150);
       Object.assign(state.settings, {
         style: data.style, follow: P.bounded(data.follow, 1, 60, 15), max: P.bounded(data.max, 0, 3, 2),
-        remind: Boolean(data.remind), quiet: Boolean(data.quiet), quietStart: data.quietStart,
-        quietEnd: data.quietEnd, nextDayTime: data.nextDayTime,
+        remind: Boolean(data.remind), nextDayTime: data.nextDayTime,
       });
       save(); render(); toast('设置已保存');
     },
