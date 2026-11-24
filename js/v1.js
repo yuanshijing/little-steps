@@ -68,7 +68,7 @@
   function event(v, type, now, payload = {}) {
     v.events.push({ type, at: now.getTime(), day: P.dateKey(now), ...payload });
   }
-  function message(v, text, role = 'coach') { v.messages.push({ role, text }); }
+  function message(v, text, role = 'coach', detail = {}) { v.messages.push({ role, text, ...detail }); }
   function planText(state, day, night = false) {
     const confirmed = state.plans[day]?.items;
     const rows = confirmed?.length ? confirmed : P.schedule(state, day).filter(({item, task}) =>
@@ -118,7 +118,7 @@
     const intro = item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
     const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
     const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
-    message(v, [intro, quote, list].filter(Boolean).join('\n\n'));
+    message(v, [intro, quote, list].filter(Boolean).join('\n\n'), 'coach', {source, at:now.getTime()});
     if (item.id === 'sleep') message(v, '先看看今天的记录。你可以简短复盘、补充情况，或直接休息。\n' + dailyText(v, item.day));
     event(v, 'reminder', now, { id: item.id, key: item.key, source });
     return true;

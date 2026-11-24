@@ -16,7 +16,7 @@
   const readDuration = values => values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) + ' 分钟' : '暂无记录';
   const voice = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  const routes = {chat:'v1', schedule:'v1settings', review:'v1review', library:'v1library', memory:'v1memory', ideas:'v1ideas'};
+  const routes = {chat:'v1', schedule:'v1reminders', review:'v1review', library:'v1library', memory:'v1memory', ideas:'v1ideas'};
   function mount({ state: getState, page, save, render, go, toast }) {
     const vNow = () => V.init(getState());
     const date = () => P.dateKey();
@@ -67,9 +67,9 @@
       const custom = a?.stage === 'wait' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = a?.id === 'bath' || v.timer ? timerView(v) : '';
       const paused = getState().settings.pausedUntil > Date.now();
-      return `<div class="coach-layout"><div>` + card('主动对话', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
+      return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
-          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}</span>${esc(row.text)}</div>`).join('') || '<div class="bubble ai"><span class="bubble-speaker">小星</span>我在这里。到提醒时间，我会来确认你的状态。你现在也可以先说说想做什么。</div>'}</div>
+          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${row.source === 'schedule' || row.source === 'transition' ? ' · ' + (row.source === 'schedule' ? '定时提醒' : '环节衔接') + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
         ${a ? `<p><b>${esc(V.data[a.id]?.title ?? '偏航回归')}</b> <span class="subtle">${esc(due)}</span></p>
         ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
         <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
@@ -83,9 +83,8 @@
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
           <button type="button" class="secondary small" data-act="page" data-target="focus">启动与专注计时</button>
-          <button type="button" class="secondary small" data-act="page" data-target="home">查看今日八项安排</button>
+          ${btn('tab','查看定时提醒','schedule')}
           ${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</div>`) +
-        card('任务支持', '<div class="section-links"><button type="button" class="secondary small" data-act="page" data-target="coach">自定义任务教练</button><button type="button" class="secondary small" data-act="page" data-target="recover">记录自定义任务偏航</button></div>') +
         '</aside></div>';
     }
     function timerView(v) {
@@ -95,20 +94,26 @@
         ${number('custom','自定义分钟',20,1,180)}<button class="primary">开始计时</button></form>`);
     }
     function schedulePage(v) {
-      return card('八项独立定时提醒', `<form data-v1-form="settings">${V.ids.map(id => `<div class="v1-line">
-        <label><input type="checkbox" name="enabled_${id}" ${v.settings.times[id].enabled ? 'checked' : ''}> ${esc(V.data[id].title)}</label>
-        ${when('time_'+id,'提醒时间',v.settings.times[id].time)}</div>`).join('')}
-        <h3>跟进间隔（分钟）</h3><div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label,v.settings.intervals[key])).join('')}
-        ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div>
-        <h3>奖励条件</h3><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div>
-        <h3>每周复盘</h3><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
-          `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div>
+      const state = getState();
+      return card('八项提醒时间', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
+        <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
+        <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
+        <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
+        ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div></details>
+        <details class="reminder-details"><summary>每周复盘提醒</summary><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
+          `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div></details>
+        <label><input type="checkbox" name="remind" ${state.settings.remind ? 'checked' : ''}> 启用自动提醒</label>
+        <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>`);
+    }
+    function settingsPage(v) {
+      return card('奖励与音效', `<form data-v1-form="settings">
         <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
-        <div class="controls"><button class="primary">保存设置</button>${btn('soundDemo','试听奖励音效','normal')}
-        ${btn('soundDemo','试听睡前音效','sleep')}${btn('notify','授权浏览器通知')}</div>
-        <p class="notice">打开网页时可在对话区看到提醒。关闭网页之后，当前公开站没有后台推送服务。浏览器可能限制后台标签页的定时执行。</p></form>`) +
-        card('语录、教练偏好与备份', `<div class="controls">${btn('tab','打开晨间语录库','library')}
-          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格、免打扰与数据导出</button></div>`) +
+        <div class="controls">${btn('soundDemo','试听奖励音效','normal')}${btn('soundDemo','试听睡前音效','sleep')}</div>
+        <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
+        <button class="primary">保存奖励设置</button></form>`) +
+        card('教练偏好与数据', `<div class="controls">
+          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格、免打扰与数据导出</button>
+          ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
         card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
     }
     function reviewPage(v) {
@@ -121,7 +126,7 @@
       const stamp = xs => xs.map(n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0')).join('、') || '暂无记录';
       return `<nav class="review-navigation" aria-label="复盘入口"><a class="secondary small" href="#daily-review">每日复盘</a>
         <a class="secondary small" href="#tomorrow-plan">明日重点</a><a class="secondary small" href="#weekly-review">每周复盘</a>
-        ${btn('tab','查看长期记忆','memory')}<button type="button" class="secondary small" data-act="page" data-target="growth">自定义任务趋势</button></nav>` +
+        ${btn('tab','查看长期记忆','memory')}</nav>` +
         '<div id="daily-review">' +
         card('每日复盘', `<label>查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label><pre>${esc(one)}</pre>
         <p>偏航 ${todayCases.length} 次 · ${esc(todayCases.map(c => c.obstacle + '，尝试：' + c.strategy).join('；') || '暂无偏航记录')}</p>
@@ -167,7 +172,7 @@
     }
     function screen(section) {
       const v = vNow();
-      return ({chat:chatPage,schedule:schedulePage,review:reviewPage,library:libraryPage,memory:memoryPage,ideas:ideasPage}[section])(v);
+      return ({chat:chatPage,schedule:schedulePage,settings:settingsPage,review:reviewPage,library:libraryPage,memory:memoryPage,ideas:ideasPage}[section])(v);
     }
     function paint() {
       const draft = document.getElementById('v1-input')?.value;
@@ -190,24 +195,34 @@
         : elapsed >= t.target ? '已到目标时间 · 仍在记录实际用时'
         : t.stages.length === 2 && elapsed >= 30*60000 ? '第二阶段 · 洗衣及整理' : '第一阶段 · 洗澡';
     }
+    function updateReminderStatuses(v) {
+      for (const node of document.querySelectorAll('[data-reminder-status]')) {
+        node.textContent = window.PlanetDashboard.reminderStatus(v, date(), node.dataset.reminderStatus);
+      }
+    }
     function selectTab(next) { go(routes[next]); }
-    function configure(data) {
+    function configureSchedule(data) {
       const v = vNow(), s = v.settings;
-      if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
+      if (V.ids.some(id => !P.timeOk(data['time_'+id]))) return toast('请填写有效提醒时间');
       for (const id of V.ids) {
         const time = data['time_'+id];
         const enabled = Boolean(data['enabled_'+id]);
-        if (!P.timeOk(time)) return toast('请填写有效提醒时间');
         s.times[id] = { time, enabled };
         if (!enabled && v.active?.id === id) V.park(v,'主动跳过');
       }
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
-      for (const key of Object.keys(levelName)) s[key] = P.bounded(data[key],1,1000,s[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
       if (P.timeOk(data.wrap_am) && P.timeOk(data.wrap_pm)) s.wrapTimes = {am:data.wrap_am,pm:data.wrap_pm};
-      s.sound = Boolean(data.sound);
+      getState().settings.remind = Boolean(data.remind);
       toast('提醒设置已保存');
+    }
+    function configureRewards(data) {
+      const s = vNow().settings;
+      if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
+      for (const key of Object.keys(levelName)) s[key] = P.bounded(data[key],1,1000,s[key]);
+      s.sound = Boolean(data.sound);
+      toast('奖励设置已保存');
     }
     function recognize(id) {
       const el = document.getElementById(id);
@@ -280,6 +295,7 @@
           return void Notification.requestPermission().then(r=>toast(r==='granted'?'浏览器通知已授权':'当前未授权浏览器通知'));
         }
         if (name === 'open') {
+          if (value !== 'return') return;
           const opened = V.open(state,value);
           modelOptions=[];
           if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
@@ -332,7 +348,8 @@
       const v=vNow(),state=getState(),data=Object.fromEntries(new FormData(form));
       try {
         switch(form.dataset.v1Form) {
-          case 'settings': configure(data); break;
+          case 'schedule': configureSchedule(data); break;
+          case 'settings': configureRewards(data); break;
           case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
@@ -363,7 +380,8 @@
         const count = v.messages.length;
         if (!V.tick(getState(), now)) return;
         save();
-        if (page() === 'v1' || page() === 'home') paint();
+        if (page() === 'v1') paint();
+        if (page() === 'v1reminders') updateReminderStatuses(v);
         if (page() !== 'v1' && v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
         if (v.messages.length > count && window.Notification?.permission === 'granted') {
           try { new Notification('小步星球 · 小星', { body: '打开对话查看你的日程提醒。' }); } catch { /* In-page message persists. */ }

@@ -13,10 +13,10 @@
   const card = (title, body) => `<section class="surface"><h2 class="section-title">${esc(title)}</h2>${body}</section>`;
   const notice = text => `<p class="notice">${esc(text)}</p>`;
   const headings = {
-    home: '今天，从一小步开始', coach: '和小星聊聊', plan: '让计划变得可执行',
+    coach: '自定义任务教练', plan: '已有的自定义任务',
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
-    recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星陪伴',
-    v1review: '日周复盘', v1stars: '星空收藏', v1settings: '提醒与音效', v1library: '晨间语录',
+    recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星对话',
+    v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '定时提醒',
     v1memory: '长期记忆', v1ideas: '灵感暂存',
   };
   const home = byId('view');
@@ -27,7 +27,7 @@
   let state;
   try { state = P.read(localStorage); }
   catch { state = P.createState(); }
-  let page = 'home';
+  let page = 'v1';
   let editId = '';
   let selectedDay = P.dateKey();
   let context = null;
@@ -60,7 +60,7 @@
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
     const navPage = ({focus:'v1', coach:'v1', recover:'v1', growth:'v1review', review:'v1review',
-      v1memory:'v1review', v1ideas:'v1', v1library:'v1settings', settings:'v1settings'})[page] ?? page;
+      v1memory:'v1review', v1ideas:'v1', settings:'v1settings', plan:'v1settings'})[page] ?? page;
     document.querySelectorAll('#nav button').forEach(button => {
       const current = button.dataset.page === navPage;
       button.classList.toggle('active', current);
@@ -72,7 +72,7 @@
     renderInbox();
     updateTimer();
     v1View.clock();
-    const box = byId('chatbox');
+    const box = byId('v1-chat') ?? byId('chatbox');
     if (box) box.scrollTop = box.scrollHeight;
   }
   function controls(task, item) {
@@ -229,10 +229,10 @@
       '<p>浏览器通知依赖 HTTPS 或 localhost 和授权，实际送达还取决于系统设置。教练提供行动支持，不提供 ADHD 诊断或治疗。</p>' +
       `<div class="controls">${action('export', '导出 JSON')}${action('reset', '清除本地数据', '', 'danger')}</div>`);
   }
-  const views = { home: () => window.PlanetDashboard.home(state), coach: coachView, plan: planView, growth: growthView, settings: settingsView,
+  const views = { coach: coachView, plan: planView, growth: growthView, settings: settingsView,
     recover: recoverView, focus: focusView, review: reviewView, v1: () => v1View.screen('chat'),
     v1review: () => v1View.screen('review'), v1stars: () => window.PlanetDashboard.sky(state),
-    v1settings: () => v1View.screen('schedule'), v1library: () => v1View.screen('library'),
+    v1reminders: () => v1View.screen('schedule'), v1settings: () => v1View.screen('settings'), v1library: () => v1View.screen('library'),
     v1memory: () => v1View.screen('memory'), v1ideas: () => v1View.screen('ideas') };
 
   function renderInbox() {
@@ -271,7 +271,7 @@
       save();
       toast(timerChange === 'finished' ? '计时完成，已经为你记录。' : '进入下一段。');
       byId('starcount').textContent = state.stars;
-      if (page === 'home' || page === 'v1stars') render();
+      if (page === 'v1stars') render();
     }
     v1View.tick(now);
     v1View.clock();
@@ -287,7 +287,7 @@
     }
     if (day !== lastObservedDay) {
       lastObservedDay = day;
-      if (page === 'home' || page === 'growth') render();
+      if (page === 'growth') render();
     }
     updateTimer();
   }
@@ -429,7 +429,7 @@
     export: exportData,
     reset: () => {
       if (!confirm('确定清除当前浏览器保存的任务和记录吗？')) return;
-      state = P.createState(); context = null; editId = ''; save(); go('home');
+      state = P.createState(); context = null; editId = ''; save(); go('v1');
     },
   };
   const forms = {

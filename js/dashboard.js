@@ -18,25 +18,8 @@
     ['下午', ['pm', 'check']],
     ['晚上', ['dinner', 'bath', 'night', 'sleep']],
   ];
-  const scenes = {
-    wake: ['☀', '起床', '确认是否离床，接着洗漱和吃早餐。'],
-    am: ['▷', '上午开始学习', '打开第一项任务需要的材料。'],
-    pm: ['▷', '下午开始学习', '看一下下午的重点，选一个动作开始。'],
-    check: ['◎', '下午状态监督', '告诉小星你是专注、休息，还是需要回到任务。'],
-    dinner: ['◒', '晚上吃饭', '收好手头的工作，再安排晚饭和饭后活动。'],
-    bath: ['♧', '洗澡', '准备换洗衣物，记得先打开计时器。'],
-    night: ['▷', '晚上开始学习', '看看今天剩下的重要任务，从第一步开始。'],
-    sleep: ['☾', '睡觉与复盘', '收好手头的事，给今天做个简短的回顾。'],
-    return: ['↶', '回到正轨', '说说现在卡在哪里，我们一起找一个可以做的动作。'],
-  };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'})[c]);
-  const route = (id, text, style = 'secondary small') =>
-    `<button type="button" class="${style}" data-act="page" data-target="${id}">${text}</button>`;
-  const open = (id, text, style = 'secondary small', label = '') =>
-    `<button type="button" class="${style}" data-v1="open" data-value="${id}"${label ? ' aria-label="' + esc(label) + '"' : ''}>${text}</button>`;
   const badge = ([name, icon, color]) => `<span class="star-badge color-${color}" aria-hidden="true">${icon}</span>`;
-  const completed = ['已完成', '完成得很好'];
-  const pending = ['待执行', '暂时延迟'];
   const localDate = day => new Date(day + 'T12:00:00').toLocaleDateString('zh-CN', {month:'long', day:'numeric'});
 
   function collection(state) {
@@ -44,7 +27,7 @@
     const entries = new Map();
     const add = (name, key, day, at, label) => entries.set(name + '/' + key, {name, day, at, label});
     for (const award of v.rewardHistory) {
-      add(award.star, award.key, award.day, award.at, scenes[award.id]?.[1] || '任务奖励');
+      add(award.star, award.key, award.day, award.at, V.data[award.id]?.title || (award.id === 'return' ? '偏航回归' : '任务奖励'));
     }
     for (const event of state.events) {
       if (event.type === 'timer_finished') add('专注星', event.id, event.date, Date.parse(event.at), '完成计时');
@@ -63,55 +46,27 @@
     return [...entries.values()].sort((a, b) => b.at - a.at);
   }
 
-  function home(state, now = new Date()) {
+
+  function reminderStatus(v, day, id) {
+    const row = v.records[day + '/' + id];
+    if (v.active?.id === id && v.active.day === day) return '对话中';
+    if (!v.settings.times[id].enabled && (!row || row.status === '待执行')) return '已关闭';
+    if (row?.status && row.status !== '待执行') return row.status;
+    return '尚未提醒';
+  }
+
+  function reminders(state, now = new Date()) {
     const v = V.init(state);
     const day = P.dateKey(now);
-    const rows = V.ids.map(id => ({id, ...v.settings.times[id], row:v.records[day + '/' + id]}));
-    const active = v.active;
-    const currentMinute = Math.floor(now.getTime() / 60000) * 60000;
-    const next = rows.filter(({enabled, row}) => enabled && pending.includes(row?.status ?? '待执行'))
-      .sort((a, b) => a.time.localeCompare(b.time)).find(row => P.dueAt(day, row.time) >= currentMinute);
-    const current = active ?? next;
-    const count = rows.filter(({row}) => completed.includes(row?.status)).length;
-    const goal = state.plans[day]?.items?.[0];
-    const task = goal ?? P.nextTask(state, day)?.task;
-    const paused = state.settings.pausedUntil > now.getTime();
-    const heading = current ? scenes[current.id][1] : task ? '看看今天的重点' : '按自己的节奏继续';
-    const description = active
-      ? (V.phases[active.stage]?.[0] || scenes[active.id][2])
-      : next ? scenes[next.id][2] : task ? esc(task.title) : '可以打开小星对话，也可以先放松一下。';
-    const log = collection(state);
-    const timeline = rhythm.map(([label, ids]) => `<section class="rhythm-group"><h3>${label}</h3>
-      ${ids.map(id => {
-        const {row, enabled, time} = rows.find(entry => entry.id === id);
-        const talking = active?.id === id;
-        const done = completed.includes(row?.status);
-        const status = talking ? '对话中' : row?.status === '待执行' && !enabled ? '提醒已关闭'
-          : row?.status ?? (enabled ? '待执行' : '提醒已关闭');
-        const tone = talking ? 'current' : done ? 'done' : 'neutral';
-        const verb = talking ? '继续' : '开始';
-        return `<div class="rhythm-row"><time>${esc(time)}</time><span class="scene-icon" aria-hidden="true">${scenes[id][0]}</span>
-          <div class="rhythm-name">${scenes[id][1]}<span class="rhythm-status ${tone}">${esc(status)}</span></div>
-          ${talking || !done ? open(id, verb, 'row-button', verb + ' · ' + scenes[id][1]) : ''}</div>`;
-      }).join('')}</section>`).join('');
-    return `<section class="today-hero"><div class="hero-content">
-      <div class="hero-label"><span></span>${active ? '当前对话' : next ? '下一项提醒 · ' + esc(next.time) : '今天的下一步'}</div>
-      <h2>${heading}</h2><p>${description}</p>
-      ${active ? route('v1','继续和小星对话','hero-button') : next ? open(next.id,'和小星开始','hero-button')
-        : route(task ? 'plan' : 'v1',task ? '查看我的计划' : '打开小星陪伴','hero-button')}
-      ${paused ? '<p class="hero-paused">监督已暂停，可以手动继续对话。</p>' : ''}</div>
-      <div class="orbit-art" aria-hidden="true"><i></i><span>✦</span><span>✧</span><span>·</span><span>✦</span></div></section>
-      <div class="today-grid"><section class="surface rhythm-card"><div class="dashboard-heading"><div><h2>今日节奏</h2><p>完成 ${count} / 8 项</p></div>${route('v1settings','编辑提醒','text-button')}</div>${timeline}</section>
-      <aside class="today-aside">
-        <section class="surface quick-card"><h2>随手行动</h2>
-          ${open('return','<span aria-hidden="true">↶</span><b>回到正轨</b><small>偏航后重新启动</small>','quick-link')}
-          ${route('focus','<span aria-hidden="true">◷</span><b>启动与专注计时</b><small>30 秒起步，也可自定义</small>','quick-link')}
-          ${route('v1review','<span aria-hidden="true">☾</span><b>睡前复盘</b><small>回顾今天，准备明天</small>','quick-link')}</section>
-        ${task ? `<section class="surface today-plan"><h2>今日重点</h2><p><b>${esc(task.title)}</b></p>
-          ${task.firstStep ? '<p class="subtle">第一步 · ' + esc(task.firstStep) + '</p>' : ''}${route('plan','查看我的计划','text-button')}</section>` : ''}
-        <section class="surface collection-preview"><h2>星空收藏</h2><p class="subtle">已收藏 ${log.length} 颗 · ${new Set(log.map(row => row.name)).size} / 8 种</p>
-          <div class="mini-stars">${stars.map(badge).join('')}</div>${route('v1stars','打开星空收藏','text-button')}</section>
-      </aside></div>`;
+    return rhythm.map(([label, ids]) => `<fieldset class="reminder-group"><legend>${label}</legend>${ids.map(id => {
+      const {time, enabled} = v.settings.times[id];
+      const title = esc(V.data[id].title);
+      return `<div class="reminder-row"><label class="reminder-toggle">
+        <input type="checkbox" name="enabled_${id}" ${enabled ? 'checked' : ''}> <strong>${title}</strong></label>
+        <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id))}</span>
+        <input type="time" class="field" name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
+        </div>`;
+    }).join('')}</fieldset>`).join('');
   }
 
   function sky(state) {
@@ -132,5 +87,5 @@
         : '<p class="subtle">完成并记录一个行动后，这里就会留下第一颗星。</p>'}
       ${Object.keys(v.achievements).length ? '<h3>已解锁成就</h3><p>' + Object.keys(v.achievements).map(esc).join(' · ') + '</p>' : ''}</section>`;
   }
-  return { collection, home, sky };
+  return { collection, reminders, reminderStatus, sky };
 });
