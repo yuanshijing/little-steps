@@ -16,11 +16,11 @@
   const readDuration = values => values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) + ' 分钟' : '暂无记录';
   const voice = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  function mount({ state: getState, save, render, go, toast }) {
+  const routes = {chat:'v1', schedule:'v1settings', review:'v1review', library:'v1library', memory:'v1memory', ideas:'v1ideas'};
+  function mount({ state: getState, page, save, render, go, toast }) {
     const vNow = () => V.init(getState());
     const date = () => P.dateKey();
     const api = location.protocol !== 'file:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
-    let tab = 'chat';
     let day = date();
     let lastReview = '';
     let modelOptions = [];
@@ -60,20 +60,16 @@
       setTimeout(() => el.remove(), 3700);
       void audioReady.then(ready => playSound(award, ready)).catch(() => {});
     }
-    function tabs() {
-      return `<nav class="controls" aria-label="小星功能">${[['chat','主动对话'], ['schedule','提醒设置'], ['review','日周复盘'],
-        ['library','晨间语录'], ['memory','记忆与灵感']].map(([id, label]) => btn('tab', label, id, tab === id)).join('')}</nav>`;
-    }
     function chatPage(v) {
       const a = v.active;
       const controls = a ? V.options(v).map(([label], i) => btn('choice', label, a.revision + '/' + i)).join('') : '';
       const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : '';
       const custom = a?.stage === 'wait' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = a?.id === 'bath' || v.timer ? timerView(v) : '';
-      return card('小星 · 主动陪伴', `<p class="subtle">${esc(modelStatus)}${getState().settings.pausedUntil > Date.now() ? ' · 监督已暂停' : ''}</p>
-        <div class="controls">${btn('open','把我拉回来','return',true)}${btn('pause','暂停一小时')}${btn('resume','恢复监督')}${btn('tab','记个灵感','memory')}</div>
+      const paused = getState().settings.pausedUntil > Date.now();
+      return `<div class="coach-layout"><div>` + card('主动对话', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
-          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}">${esc(row.text)}</div>`).join('') || '<p class="subtle">到点小星会来询问。也可以从下方选择一个环节开始。</p>'}</div>
+          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}</span>${esc(row.text)}</div>`).join('') || '<div class="bubble ai"><span class="bubble-speaker">小星</span>我在这里。到提醒时间，我会来确认你的状态。你现在也可以先说说想做什么。</div>'}</div>
         ${a ? `<p><b>${esc(V.data[a.id]?.title ?? '偏航回归')}</b> <span class="subtle">${esc(due)}</span></p>
         ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
         <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
@@ -85,10 +81,12 @@
         ${api ? '<p class="subtle">使用模型按钮会发送本条消息、今日重点、近期对话和你允许检索的相关记忆。</p>' : ''}
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
-        card('今日八项安排', V.ids.map(id => {
-          const setting = v.settings.times[id], row = v.records[date() + '/' + id];
-          return `<div class="v1-line"><span>${esc(setting.time)} · ${esc(V.data[id].title)} <small>${esc(row?.status ?? (setting.enabled ? '待执行' : '提醒已关'))}</small></span>${btn('open','进入',id)}</div>`;
-        }).join(''));
+        `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
+          <button type="button" class="secondary small" data-act="page" data-target="focus">启动与专注计时</button>
+          <button type="button" class="secondary small" data-act="page" data-target="home">查看今日八项安排</button>
+          ${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</div>`) +
+        card('任务支持', '<div class="section-links"><button type="button" class="secondary small" data-act="page" data-target="coach">自定义任务教练</button><button type="button" class="secondary small" data-act="page" data-target="recover">记录自定义任务偏航</button></div>') +
+        '</aside></div>';
     }
     function timerView(v) {
       return card('洗澡计时', v.timer ? `<p id="v1-timer" class="timer">00:00</p><p id="v1-timer-stage"></p>
@@ -108,7 +106,9 @@
         <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
         <div class="controls"><button class="primary">保存设置</button>${btn('soundDemo','试听奖励音效','normal')}
         ${btn('soundDemo','试听睡前音效','sleep')}${btn('notify','授权浏览器通知')}</div>
-        <p class="notice">安装或打开网页时可在对话区看到提醒。关闭网页之后，当前公开站没有后台推送服务。浏览器可能限制后台标签页的定时执行。</p></form>`) +
+        <p class="notice">打开网页时可在对话区看到提醒。关闭网页之后，当前公开站没有后台推送服务。浏览器可能限制后台标签页的定时执行。</p></form>`) +
+        card('语录、教练偏好与备份', `<div class="controls">${btn('tab','打开晨间语录库','library')}
+          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格、免打扰与数据导出</button></div>`) +
         card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
     }
     function reviewPage(v) {
@@ -119,16 +119,22 @@
       const tomorrow = P.shiftDate(date(), 1);
       const plan = getState().plans[tomorrow]?.items ?? [];
       const stamp = xs => xs.map(n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0')).join('、') || '暂无记录';
-      return card('每日复盘', `<label>查看日期<input class="field" type="date" id="v1-review-date" value="${day}"></label><pre>${esc(one)}</pre>
+      return `<nav class="review-navigation" aria-label="复盘入口"><a class="secondary small" href="#daily-review">每日复盘</a>
+        <a class="secondary small" href="#tomorrow-plan">明日重点</a><a class="secondary small" href="#weekly-review">每周复盘</a>
+        ${btn('tab','查看长期记忆','memory')}<button type="button" class="secondary small" data-act="page" data-target="growth">自定义任务趋势</button></nav>` +
+        '<div id="daily-review">' +
+        card('每日复盘', `<label>查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label><pre>${esc(one)}</pre>
         <p>偏航 ${todayCases.length} 次 · ${esc(todayCases.map(c => c.obstacle + '，尝试：' + c.strategy).join('；') || '暂无偏航记录')}</p>
         <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p>
         <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note">${esc(row?.note)}</textarea></label>
         <div class="controls"><button class="primary">保存并制定明日计划</button>${btn('skipReview','今天跳过详细复盘')}${voice ? btn('voice','语音输入','v1-reflection') : ''}</div></form>
         <p>${row ? row.skipped ? '已跳过详细复盘' : '复盘已保存' : ''}</p>`) +
+        '</div><div id="tomorrow-plan">' +
         card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow"><p class="subtle">最多三项，次日起床或上午提醒会附上。也可以在复盘里分行写「明天：任务」，再提取。</p>
         ${btn('extract','从复盘提取明日重点')}${[0,1,2].map(i => `<fieldset><legend>重点 ${i+1}</legend>
           ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${when('when'+i,'时间',plan[i]?.when ?? '09:00')}
           ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}</fieldset>`).join('')}<button class="primary">确认明日清单</button></form>`) +
+        '</div><div id="weekly-review">' +
         card('每周复盘 · 最近七天', `<p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
         <p>起床时间 ${esc(stamp(report.wakeTimes))}</p><p>上床时间 ${esc(stamp(report.bedTimes))}</p>
         <p>偏航记录 ${report.cases.length} · 确认回归 ${report.returns}</p>
@@ -136,9 +142,7 @@
         <h3>代表性案例</h3>${report.cases.slice(-4).map(e => `<p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}
         ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</p>`).join('') || '<p>暂无案例</p>'}
         <h3>已确认回归时尝试的策略</h3><p>${esc(report.strategies.join('；') || '暂无记录')}</p>
-        <h3>下一周可试</h3><p>${esc(report.suggested.join('；') || '先记录一次真实的中断和恢复过程。')}</p>`) +
-        card('我的星空收藏', `<p>${Object.entries(v.rewardHistory.reduce((out,r) => (out[r.star]=(out[r.star]??0)+(r.level===1?1:0),out), {})).map(([name,n])=>esc(name)+' '+n+' 颗').join(' · ') || '还没有新版本的奖励记录'}</p>
-        <p>${Object.keys(v.achievements).map(esc).join(' · ') || '成就按累计次数解锁'}</p>`);
+        <h3>下一周可试</h3><p>${esc(report.suggested.join('；') || '先记录一次真实的中断和恢复过程。')}</p>`) + '</div>';
     }
     function libraryPage(v) {
       const current = V.chooseQuote(v, date());
@@ -147,11 +151,13 @@
         card('晨间语录库', [...V.catalog.quotes,...v.customQuotes].map(q => `<div class="v1-line"><span><b>${esc(q.theme)}</b> ${esc(q.lines.join(' '))}</span>
           <select aria-label="${esc(q.theme)}偏好" class="field" data-v1-quote="${esc(q.id)}">${[['','可用'],['favorite','收藏'],['dislike','不喜欢'],['hidden','隐藏']].map(([k,l])=>`<option value="${k}" ${(v.preferences[q.id]??'')===k?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''));
     }
-    function memoryPage(v) {
+    function ideasPage(v) {
       return card('灵感暂存', `<form data-v1-form="idea"><label>记下现在不必展开的事<textarea class="field" required id="v1-idea" name="text" maxlength="500"></textarea></label>
         <div class="controls"><button class="primary">保存并回到原任务</button>${voice ? btn('voice','语音记录','v1-idea') : ''}</div></form>
-        ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`) +
-        card('长期记忆', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
+        ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`);
+    }
+    function memoryPage(v) {
+      return card('小星记住的内容', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
         <p class="subtle">确认后才保存。你可以修改类别、文字或删除。仅在明确调用模型时提供相关条目。</p>
         ${[...v.memory,{id:'',text:'',source:'用户自述',scene:'all'}].map(row=>`<form data-v1-form="memory" class="v1-memory-row">
           <input type="hidden" name="id" value="${esc(row.id)}">${input('text',row.id?'编辑记忆':'添加记忆',row.text,'required maxlength="320"')}
@@ -159,9 +165,9 @@
           <label>相关环节<select class="field" name="scene"><option value="all">通用</option>${V.ids.map(id=>`<option value="${id}" ${row.scene===id?'selected':''}>${esc(V.data[id].title)}</option>`).join('')}</select></label></div>
           <div class="controls"><button class="secondary">${row.id?'保存修改':'确认添加'}</button>${row.id?btn('deleteMemory','删除',row.id):''}</div></form>`).join('')}`);
     }
-    function screen() {
+    function screen(section) {
       const v = vNow();
-      return tabs() + ({chat:chatPage,schedule:schedulePage,review:reviewPage,library:libraryPage,memory:memoryPage}[tab])(v);
+      return ({chat:chatPage,schedule:schedulePage,review:reviewPage,library:libraryPage,memory:memoryPage,ideas:ideasPage}[section])(v);
     }
     function paint() {
       const draft = document.getElementById('v1-input')?.value;
@@ -184,7 +190,7 @@
         : elapsed >= t.target ? '已到目标时间 · 仍在记录实际用时'
         : t.stages.length === 2 && elapsed >= 30*60000 ? '第二阶段 · 洗衣及整理' : '第一阶段 · 洗澡';
     }
-    function selectTab(next) { tab = next; go('v1'); paint(); }
+    function selectTab(next) { go(routes[next]); }
     function configure(data) {
       const v = vNow(), s = v.settings;
       if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
@@ -224,7 +230,7 @@
           ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token · 估算 $' + (result.cost ?? 0) :
           '基础教练模式 · 尚未配置模型';
       } catch { modelStatus = '基础教练模式 · 模型连接不可用'; }
-      if (document.querySelector('[data-page="v1"].active')) paint();
+      if (page() === 'v1' || page() === 'v1settings') paint();
     }
     async function reply(text, useModel) {
       const v = vNow();
@@ -246,7 +252,7 @@
         fallback.text = value.reply;
         modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
       } catch { fallback.text = '模型暂不可用，已切回基础教练。\n' + fallback.text; }
-      finally { if (document.querySelector('[data-page="v1"].active')) paint(); }
+      finally { if (page() === 'v1') paint(); else save(); }
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
@@ -254,6 +260,12 @@
       const {v1: name,value} = b.dataset, v = vNow(), state = getState();
       try {
         if (name === 'tab') return selectTab(value);
+        if (name === 'emotion') {
+          const field = document.getElementById('v1-input');
+          field.placeholder = '比如：我现在觉得很烦，脑子里总在想……';
+          field.focus();
+          return;
+        }
         if (name === 'voice') return recognize(value);
         if (name === 'connection') return void checkConnection(true);
         if (name === 'soundDemo') {
@@ -267,7 +279,12 @@
           if (!window.Notification || !isSecureContext) return toast('浏览器未提供通知权限');
           return void Notification.requestPermission().then(r=>toast(r==='granted'?'浏览器通知已授权':'当前未授权浏览器通知'));
         }
-        if (name === 'open') { V.open(state,value); modelOptions=[]; }
+        if (name === 'open') {
+          const opened = V.open(state,value);
+          modelOptions=[];
+          if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
+          if (page() !== 'v1') selectTab('chat');
+        }
         if (name === 'choice') {
           const [revision,index]=value.split('/');
           const r=V.choose(state,revision,Number(index));
@@ -346,10 +363,8 @@
         const count = v.messages.length;
         if (!V.tick(getState(), now)) return;
         save();
-        if (document.querySelector('[data-page="v1"].active')) {
-          if (tab === 'chat') paint();
-          else if (v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
-        } else if (v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
+        if (page() === 'v1' || page() === 'home') paint();
+        if (page() !== 'v1' && v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
         if (v.messages.length > count && window.Notification?.permission === 'granted') {
           try { new Notification('小步星球 · 小星', { body: '打开对话查看你的日程提醒。' }); } catch { /* In-page message persists. */ }
         }

@@ -15,7 +15,9 @@
   const headings = {
     home: '今天，从一小步开始', coach: '和小星聊聊', plan: '让计划变得可执行',
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
-    recover: '回到正轨', focus: '给眼前这一步一点时间', review: '睡前外化与次日计划', v1: '小星陪伴 · V1.0',
+    recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星陪伴',
+    v1review: '日周复盘', v1stars: '星空收藏', v1settings: '提醒与音效', v1library: '晨间语录',
+    v1memory: '长期记忆', v1ideas: '灵感暂存',
   };
   const home = byId('view');
   const inbox = document.createElement('section');
@@ -57,7 +59,15 @@
     byId('starcount').textContent = state.stars;
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
-    document.querySelectorAll('#nav button').forEach(button => button.classList.toggle('active', button.dataset.page === page));
+    const navPage = ({focus:'v1', coach:'v1', recover:'v1', growth:'v1review', review:'v1review',
+      v1memory:'v1review', v1ideas:'v1', v1library:'v1settings', settings:'v1settings'})[page] ?? page;
+    document.querySelectorAll('#nav button').forEach(button => {
+      const current = button.dataset.page === navPage;
+      button.classList.toggle('active', current);
+      if (current) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+    home.dataset.screen = page;
     home.innerHTML = views[page]();
     renderInbox();
     updateTimer();
@@ -76,22 +86,6 @@
       ${action('defer', '推迟 15 分钟', data)}
       ${action('check', '完成', data + ' data-value="completed"')}</div>`;
   }
-  function homeView() {
-    const day = P.dateKey();
-    const rows = P.schedule(state, day);
-    const next = P.nextTask(state, day);
-    const complete = rows.filter(row => row.item.status === 'completed').length;
-    const plan = state.plans[day];
-    return `<div class="surface hero"><div><h2>你好，${esc(state.name)}！</h2><p>把注意力放在眼前一个动作上。</p>
-      <div class="controls">${action('page', '打开小星陪伴', 'data-target="v1"', 'primary')}${action('help', '请小星帮我启动', next ? taskData(next.task, next.item) : '')}</div></div><div class="mascot" aria-hidden="true">🤖</div></div>` +
-      card('眼前这一件', (next ? `<h3>${esc(next.task.title)}</h3><p class="subtle">${esc(next.task.when)} · ${next.task.minutes} 分钟 · ${P.STATUSES[next.item.status]}</p>
-        <p><strong>第一步</strong> ${esc(C.firstStep(next.task))}</p>${controls(next.task, next.item)}` : '<p>当前没有可开始的任务。可以查看计划或休息。</p>') +
-        `<div class="progress" aria-label="今日任务完成进度"><div style="width:${rows.length ? complete / rows.length * 100 : 0}%"></div></div><p class="subtle">今日完成 ${complete} / ${rows.length} 项</p>`) +
-      (plan ? card('昨晚确认的今日重点', planList(plan.items)) : '') +
-      `<div class="cols">${card('回到正轨', '<p>记录偏航，找到一个可行的恢复动作。</p>' + action('page', '记录偏航', 'data-target="recover"'))}
-      ${card('计时', action('page', '开始启动练习', 'data-target="focus"'))}</div>` +
-      card('睡前外化', '<p>用几句话记录今天，确认明天的三个重点。</p>' + action('page', '整理次日计划', 'data-target="review"'));
-  }
   function planList(items) {
     return '<ol>' + items.map(row => `<li>${esc(row.when)} <strong>${esc(row.title)}</strong><br><span class="subtle">${esc(row.firstStep)}</span></li>`).join('') + '</ol>';
   }
@@ -100,7 +94,9 @@
     const editing = state.tasks.find(task => task.id === editId);
     const t = editing ?? { title: '', day: selectedDay, when: '14:00', minutes: 5, repeat: 'once', priority: 2, steps: [] };
     const dependencies = state.tasks.filter(row => !row.archived && row.id !== editing?.id);
-    return card('按日查看计划', `<label for="plan-date">日期</label><input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">` +
+    const confirmed = state.plans[selectedDay]?.items ?? [];
+    return (confirmed.length ? card('已确认的重点', planList(confirmed)) : '') +
+      card('按日查看计划', `<label for="plan-date">日期</label><input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">` +
       (rows.length ? rows.map(({ task, item }) => `<article class="task ${item.status === 'completed' ? 'done' : ''}"><div class="task-body">
         <div class="task-name">${esc(task.title)}</div><div class="task-info">${esc(task.when)} · ${task.minutes} 分钟 · 优先级 ${task.priority} · ${P.STATUSES[item.status]}
         ${task.chain ? ' · ' + esc(task.chain) : ''}${item.deferUntil && item.status === 'deferred' ? ' · 延期至 ' + new Date(item.deferUntil).toLocaleString('zh-CN') : ''}</div>
@@ -233,11 +229,14 @@
       '<p>浏览器通知依赖 HTTPS 或 localhost 和授权，实际送达还取决于系统设置。教练提供行动支持，不提供 ADHD 诊断或治疗。</p>' +
       `<div class="controls">${action('export', '导出 JSON')}${action('reset', '清除本地数据', '', 'danger')}</div>`);
   }
-  const views = { home: homeView, coach: coachView, plan: planView, growth: growthView, settings: settingsView,
-    recover: recoverView, focus: focusView, review: reviewView, v1: () => v1View.screen() };
+  const views = { home: () => window.PlanetDashboard.home(state), coach: coachView, plan: planView, growth: growthView, settings: settingsView,
+    recover: recoverView, focus: focusView, review: reviewView, v1: () => v1View.screen('chat'),
+    v1review: () => v1View.screen('review'), v1stars: () => window.PlanetDashboard.sky(state),
+    v1settings: () => v1View.screen('schedule'), v1library: () => v1View.screen('library'),
+    v1memory: () => v1View.screen('memory'), v1ideas: () => v1View.screen('ideas') };
 
   function renderInbox() {
-    if (page === 'v1' || window.PlanetV1.init(state).active) { inbox.innerHTML = ''; return; }
+    if (page !== 'v1' || window.PlanetV1.init(state).active) { inbox.innerHTML = ''; return; }
     const pending = state.inbox.filter(row => !row.read && (!row.taskId || (() => {
       const item = state.instances[row.taskDay + '/' + row.taskId];
       return !item?.acknowledged;
@@ -272,6 +271,7 @@
       save();
       toast(timerChange === 'finished' ? '计时完成，已经为你记录。' : '进入下一段。');
       byId('starcount').textContent = state.stars;
+      if (page === 'home' || page === 'v1stars') render();
     }
     v1View.tick(now);
     v1View.clock();
@@ -510,7 +510,7 @@
       }
     } catch (error) { toast(error.message); }
   });
-  const v1View = window.PlanetV1View.mount({ state: () => state, save, render, go, toast });
+  const v1View = window.PlanetV1View.mount({ state: () => state, page: () => page, save, render, go, toast });
   render();
   save();
   setInterval(loop, 1000);
