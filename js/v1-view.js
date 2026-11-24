@@ -27,20 +27,15 @@
     let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
     let audio;
     const view = () => document.getElementById('view');
-    function armAudio() {
-      if (!vNow().settings.sound || !(window.AudioContext || window.webkitAudioContext)) return;
-      audio ??= new (window.AudioContext || window.webkitAudioContext)();
-      if (audio.state === 'suspended') void audio.resume().catch(() => {});
+    async function armAudio() {
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (!vNow().settings.sound || !Context) return false;
+      audio ??= new Context();
+      if (audio.state === 'suspended') await audio.resume().catch(() => {});
+      return audio.state === 'running';
     }
-    function reward(award) {
-      if (!award) return;
-      const el = document.createElement('div');
-      el.className = 'v1-celebration ' + (award.id === 'sleep' ? 'quiet' : award.level === 2 ? 'bright' : '');
-      el.setAttribute('role', 'status');
-      el.textContent = award.text + '　⭐ +' + award.bonus + ' · ' + award.star;
-      document.body.append(el);
-      setTimeout(() => el.remove(), 3700);
-      if (audio?.state !== 'running' || !vNow().settings.sound) return;
+    function playSound(award, ready) {
+      if (!ready || !vNow().settings.sound) return;
       const bedtime = award.id === 'sleep';
       const notes = bedtime ? [392, 523] : award.level === 2 ? [523, 659, 784, 1047] : [523, 659, 784];
       notes.forEach((frequency, index) => {
@@ -54,6 +49,16 @@
         osc.connect(gain).connect(audio.destination);
         osc.start(start); osc.stop(start + 0.18);
       });
+    }
+    function reward(award, audioReady) {
+      if (!award) return;
+      const el = document.createElement('div');
+      el.className = 'v1-celebration ' + (award.id === 'sleep' ? 'quiet' : award.level === 2 ? 'bright' : '');
+      el.setAttribute('role', 'status');
+      el.textContent = award.text + '　⭐ +' + award.bonus + ' · ' + award.star;
+      document.body.append(el);
+      setTimeout(() => el.remove(), 3700);
+      void audioReady.then(ready => playSound(award, ready)).catch(() => {});
     }
     function tabs() {
       return `<nav class="controls" aria-label="小星功能">${[['chat','主动对话'], ['schedule','提醒设置'], ['review','日周复盘'],
@@ -101,7 +106,8 @@
         <h3>每周复盘</h3><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
           `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div>
         <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
-        <div class="controls"><button class="primary">保存设置</button>${btn('notify','授权浏览器通知')}</div>
+        <div class="controls"><button class="primary">保存设置</button>${btn('soundDemo','试听奖励音效','normal')}
+        ${btn('soundDemo','试听睡前音效','sleep')}${btn('notify','授权浏览器通知')}</div>
         <p class="notice">安装或打开网页时可在对话区看到提醒。关闭网页之后，当前公开站没有后台推送服务。浏览器可能限制后台标签页的定时执行。</p></form>`) +
         card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
     }
@@ -250,12 +256,24 @@
         if (name === 'tab') return selectTab(value);
         if (name === 'voice') return recognize(value);
         if (name === 'connection') return void checkConnection(true);
+        if (name === 'soundDemo') {
+          if (!v.settings.sound) return toast('请先启用并保存奖励音效设置');
+          return void armAudio().then(ready => {
+            if (ready) playSound({id:value,level:1},true);
+            else toast('浏览器未能播放音效');
+          }).catch(() => toast('浏览器未能播放音效'));
+        }
         if (name === 'notify') {
           if (!window.Notification || !isSecureContext) return toast('浏览器未提供通知权限');
           return void Notification.requestPermission().then(r=>toast(r==='granted'?'浏览器通知已授权':'当前未授权浏览器通知'));
         }
         if (name === 'open') { V.open(state,value); modelOptions=[]; }
-        if (name === 'choice') { armAudio(); const [revision,index]=value.split('/'); const r=V.choose(state,revision,Number(index)); reward(r?.award); modelOptions=[]; }
+        if (name === 'choice') {
+          const [revision,index]=value.split('/');
+          const r=V.choose(state,revision,Number(index));
+          if (r?.award) reward(r.award,armAudio());
+          modelOptions=[];
+        }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
         if (name === 'remindOff' && v.settings.times[v.active?.id]) { v.settings.times[v.active.id].enabled=false; V.park(v,'主动跳过'); }
         if (name === 'pause') { state.settings.pausedUntil = Date.now()+3600000; toast('已暂停监督一小时'); }
