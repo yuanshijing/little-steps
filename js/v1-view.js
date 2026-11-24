@@ -9,7 +9,7 @@
   const input = (name, text, value = '', attrs = '') => `<label>${esc(text)}<input class="field" name="${name}" value="${esc(value)}" ${attrs}></label>`;
   const when = (name, text, value) => input(name, text, value, 'type="time" required');
   const number = (name, text, value, min = 1, max = 120) => input(name, text, value, `type="number" min="${min}" max="${max}" required`);
-  const messageSources = {schedule:'定时提醒',transition:'环节衔接',manual:'主动开启'};
+  const messageSources = {schedule:'定时提醒',transition:'环节衔接',manual:'主动开启',review:'复盘邀请'};
   const values = { wake: '已醒未离床', rise: '坐起尚未站立', wash: '洗漱', start: '准备开始',
     switch: '活动切换', returning: '偏航回归', bedtime: '睡前收尾', unanswered: '未回复' };
   const levelName = { basic: '完成积分', advanced: '进阶总积分', wakeLimit: '起床宽限分钟', startLimit: '启动宽限分钟',
@@ -26,6 +26,9 @@
     let lastReview = '';
     let modelOptions = [];
     let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
+    let modelEnabled = false;
+    let reviewPending = '';
+    let draftSequence = 0;
     let audio;
     async function armAudio() {
       const Context = window.AudioContext || window.webkitAudioContext;
@@ -87,9 +90,14 @@
       const custom = a?.stage === 'wait' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = a?.id === 'bath' || v.timer ? timerView(v) : '';
       const paused = getState().settings.pausedUntil > Date.now();
+      const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
+        .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
+        ${reviewPrompts.map(([key,row])=>`<div class="review-prompt"><strong>${row.kind==='daily'?'睡前复盘':'每周复盘'}</strong>
+        <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview','开始复盘',key,true) : ''}
+        ${row.pending ? btn('dismissReview','暂时跳过',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
         ${a ? `<p><b>${esc(V.title(v, a.id))}</b> <span class="subtle">${esc(due)}</span></p>
         ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
         <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
@@ -115,11 +123,12 @@
     }
     function schedulePage(v) {
       const state = getState();
+      const removed = V.allReminderIds(v).filter(id => v.settings.times[id].removed);
       return card('固定提醒和自定义任务', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。你也可以点「现在聊聊」提前进入对应对话。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
         <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
-        <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend><div class="reminder-add-fields">
-        ${input('new_title','任务名称','','maxlength="60" placeholder="例如：出门散步"')}
-        ${input('new_time','提醒时间','','type="time"')}</div></fieldset>
+        <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend>
+        <div id="reminder-drafts"></div>${btn('addReminder','＋ 添加一项')}<p class="subtle">可连续添加多项。最后点「保存提醒」统一生效。</p></fieldset>
+        ${removed.length ? `<details class="reminder-details"><summary>已移除的提醒</summary>${removed.map(id=>`<label><input type="checkbox" name="restore_${esc(id)}"> 恢复${esc(V.title(v,id))}</label>`).join('')}</details>` : ''}
         <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
         <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
         ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div></details>
@@ -139,6 +148,65 @@
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
         card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
     }
+    function reviewInput(v,kind,reviewDay,note) {
+      const stats = kind === 'weekly' ? V.weekly(v,reviewDay) : null;
+      const cases = stats?.cases ?? v.events.filter(row=>row.type==='detour' && row.day===reviewDay);
+      return {kind,day:reviewDay,note:note ?? (kind === 'daily' ? v.reviews[reviewDay]?.note : v.weekNotes?.[reviewDay]) ?? '',
+        records:stats ? stats.stats.map(row=>V.title(v,row.id) + '：完成 ' + row.completed + '，未完成 ' + row.incomplete +
+          '，跳过 ' + row.skipped + '，未记录 ' + row.missing) : V.dailyText(v,reviewDay).split('\n'),
+        cases:cases.slice(-6).map(row=>[row.day,row.obstacle,row.strategy,row.outcome].filter(Boolean).join(' · '))};
+    }
+    function reviewSummary(v,kind,reviewDay) {
+      const key = kind + '/' + reviewDay;
+      const stored = v.reviewSummaries?.[key];
+      let summary;
+      if (kind === 'daily') {
+        const rows = V.dailyRows(v,reviewDay);
+        const done = rows.filter(row=>['已完成','完成得很好'].includes(row.status)).map(row=>row.title);
+        const missing = rows.filter(row=>row.status==='未记录').length;
+        summary = (done.length ? '这一天有 ' + done.length + ' 项确认完成，包括' + done.slice(0,3).join('、') + '。' : '这一天暂时没有确认完成的任务记录。') +
+          (missing ? '还有 ' + missing + ' 项未记录。' : '') + '可以选一件想记下的小事，或为明天写下第一个具体动作。';
+      } else {
+        const stats = V.weekly(v,reviewDay);
+        const completed = stats.stats.reduce((sum,row)=>sum+row.completed,0);
+        summary = '最近七天确认完成 ' + completed + ' 项次，记录偏航 ' + stats.cases.length + ' 次，确认回归 ' + stats.returns + ' 次。' +
+          (stats.suggested[0] ? stats.suggested[0] : '下一周可以记录一次中断和恢复的过程，用来找出适合你的策略。');
+      }
+      return `<section class="review-summary" id="summary-${kind}"><div class="review-summary-title"><h3>小星的总结</h3>
+        <span>${stored ? '上次生成 · 大模型' : '根据记录整理'}</span></div>
+        ${(stored?.text ?? summary).split(/\n+/).filter(Boolean).map(text=>`<p>${esc(text)}</p>`).join('')}
+        ${modelEnabled ? `<p class="subtle">生成会把相关任务记录、偏航案例和复盘补充发送给已配置的模型。</p>
+        ${reviewPending === key ? '<p class="subtle" role="status">小星正在整理……</p>' : btn('generateReview',stored?'重新生成大模型总结':'用大模型生成总结',kind)}`
+          : '<p class="subtle">当前未连接大模型服务。</p>'}</section>`;
+    }
+    async function generateReview(kind) {
+      if (!modelEnabled || reviewPending || !['daily','weekly'].includes(kind)) return;
+      const state = getState(), v = vNow(), reviewDay = day, key = kind + '/' + day;
+      const note = kind === 'daily' ? document.getElementById('v1-reflection')?.value : undefined;
+      const content = reviewInput(v,kind,reviewDay,note);
+      const refresh = () => {
+        if (page() === 'v1review' && day === reviewDay) {
+          const panel = document.getElementById('summary-'+kind);
+          if (panel) panel.outerHTML = reviewSummary(v,kind,reviewDay);
+        }
+      };
+      reviewPending = key;
+      refresh();
+      try {
+        const response = await fetch('/api/v1/review',{method:'POST',headers:{'Content-Type':'application/json'},
+          signal:AbortSignal.timeout(25000),body:JSON.stringify({...content,consent:true})});
+        const result = await response.json();
+        if (!response.ok || typeof result.summary !== 'string') throw new Error();
+        if (state !== getState()) return;
+        (v.reviewSummaries ??= {})[key] = {text:result.summary,at:Date.now()};
+        save();
+      } catch {
+        toast('大模型总结暂时不可用，可以稍后重试');
+      } finally {
+        reviewPending = '';
+        refresh();
+      }
+    }
     function reviewPage(v) {
       const row = v.reviews[day];
       const report = V.weekly(v, day);
@@ -152,6 +220,7 @@
         ${btn('tab','查看长期记忆','memory')}</nav>` +
         '<div id="daily-review">' +
         card('每日复盘', `<label class="review-date">查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label>
+        ${reviewSummary(v,'daily',day)}
         <h3>任务记录</h3><ul class="daily-records">${dayRows.map(task => `<li><strong>${esc(task.title)}</strong><span>${task.completedAt ? new Date(task.completedAt).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) + ' · ' : ''}${esc(task.status)}</span></li>`).join('')}</ul>
         <div class="review-note"><h3>偏航与恢复 · ${todayCases.length} 次</h3>
         ${todayCases.length ? '<ul>' + todayCases.map(c=>'<li>' + esc(c.obstacle + ' · 尝试 ' + c.strategy) + '</li>').join('') + '</ul>' : '<p>暂无偏航记录</p>'}
@@ -165,7 +234,8 @@
           ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${when('when'+i,'时间',plan[i]?.when ?? '09:00')}
           ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}</fieldset>`).join('')}<button class="primary">确认明日清单</button></form>`) +
         '</div><div id="weekly-review">' +
-        card('每周复盘 · 最近七天', `<p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
+        card('每周复盘 · 最近七天', `${reviewSummary(v,'weekly',day)}${v.weekNotes?.[day] ? '<p><strong>你在对话中补充</strong> · '+esc(v.weekNotes[day])+'</p>' : ''}
+        <p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
         <p>起床时间 ${esc(stamp(report.wakeTimes))}</p><p>上床时间 ${esc(stamp(report.bedTimes))}</p>
         <p>偏航记录 ${report.cases.length} · 确认回归 ${report.returns}</p>
         <h3>任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><strong>${esc(V.title(v,s.id))}</strong><span>普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
@@ -176,11 +246,21 @@
     }
     function libraryPage(v) {
       const current = V.chooseQuote(v, date());
+      const nextWeek = P.shiftDate(V.monday(date()),7);
+      const all = [...V.catalog.quotes,...v.customQuotes];
+      const available = all.filter(row=>!['hidden','dislike'].includes(v.preferences[row.id]));
+      const quotePicker = (name,label,selected) => `<label>${label}<select class="field" name="${name}">
+        <option value="">自动选择</option>${available.map(row=>`<option value="${esc(row.id)}" ${row.id===selected?'selected':''}>
+        ${esc(row.theme + ' · ' + row.lines[0])}</option>`).join('')}</select></label>`;
       return card('本周晨间语录', `<p class="subtle">每周一自动换一组，同一周随起床提醒发送这两句。收藏的语录会优先入选。</p>
         ${current ? '<blockquote class="weekly-quote"><b>' + esc(current.theme) + '</b>' + current.lines.map(line=>'<p>' + esc(line) + '</p>').join('') + '</blockquote>' : '<p>目前没有可用语料</p>'}`) +
-        card('管理语录', `<details class="reminder-details"><summary>添加自定义语录</summary>
+        card('管理语录', `<form data-v1-form="quoteSchedule"><div class="cols">
+        ${quotePicker('thisWeek','本周使用',v.scheduledQuotes?.[V.monday(date())])}
+        ${quotePicker('nextWeek','下周使用 · '+nextWeek,v.scheduledQuotes?.[nextWeek])}
+        </div><button class="primary">保存语录安排</button></form>
+        <details class="reminder-details"><summary>添加自定义语录</summary>
         <form data-v1-form="quote">${input('theme','主题','','required maxlength="30"')}${input('a','第一句','','required maxlength="120"')}${input('b','第二句','','required maxlength="120"')}<button class="primary">添加语录</button></form></details>` +
-        [...V.catalog.quotes,...v.customQuotes].map(q => `<div class="v1-line quote-row"><div><b>${esc(q.theme)}</b>${q.lines.map(line=>'<p>' + esc(line) + '</p>').join('')}</div>
+        all.map(q => `<div class="v1-line quote-row"><div><b>${esc(q.theme)}</b>${q.lines.map(line=>'<p>' + esc(line) + '</p>').join('')}</div>
           <select aria-label="${esc(q.theme)}偏好" class="field" data-v1-quote="${esc(q.id)}">${[['','可用'],['favorite','收藏'],['dislike','不喜欢'],['hidden','隐藏']].map(([k,l])=>`<option value="${k}" ${(v.preferences[q.id]??'')===k?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''));
     }
     function ideasPage(v) {
@@ -236,11 +316,13 @@
     function selectTab(next) { go(routes[next]); }
     function configureSchedule(data) {
       const v = vNow(), s = v.settings;
-      const ids = V.reminderIds(v);
-      const newTitle = P.clean(data.new_title,60);
+      const ids = V.reminderIds(v).filter(id => !data['remove_'+id]);
+      const drafts = Object.keys(data).filter(key=>/^new_title_\d+$/.test(key)).map(key=>({
+        title:P.clean(data[key],60),time:data[key.replace('title','time')],
+      }));
       const error = ids.some(id => !P.timeOk(data['time_'+id])) ? '请填写有效提醒时间'
         : ids.some(id => V.isCustom(v,id) && !P.clean(data['title_'+id],60)) ? '请填写自定义任务名称'
-        : (newTitle || data.new_time) && (!newTitle || !P.timeOk(data.new_time)) ? '新增任务时，请同时填写名称和提醒时间'
+        : drafts.some(row=>!row.title || !P.timeOk(row.time)) ? '新增的每项任务都需要名称和提醒时间'
         : '';
       if (error) { toast(error); return false; }
       for (const id of ids) {
@@ -251,13 +333,45 @@
         Object.assign(setting,{time,enabled});
         if (V.isCustom(v,id)) setting.title = P.clean(data['title_'+id],60);
       }
-      if (newTitle) s.times['custom-'+P.uid()] = {title:newTitle,time:data.new_time,enabled:true,addedDay:date()};
+      for (const id of V.allReminderIds(v)) {
+        if (data['remove_'+id]) {
+          Object.assign(s.times[id],{removed:true,enabled:false});
+          if (v.active?.id === id) V.park(v,'未记录');
+        } else if (data['restore_'+id] && s.times[id].removed) {
+          Object.assign(s.times[id],{removed:false,enabled:true});
+        }
+      }
+      v.queue = v.queue.filter(row=>s.times[row.id]?.enabled);
+      for (const row of drafts) s.times['custom-'+P.uid()] = {...row,enabled:true,addedDay:date()};
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
       if (P.timeOk(data.wrap_am) && P.timeOk(data.wrap_pm)) s.wrapTimes = {am:data.wrap_am,pm:data.wrap_pm};
       getState().settings.remind = Boolean(data.remind);
-      toast('提醒设置已保存');
+      toast(drafts.length ? '已新增 ' + drafts.length + ' 项提醒' : '提醒设置已保存');
+    }
+    function addReminderDraft() {
+      const container = document.getElementById('reminder-drafts');
+      const index = ++draftSequence;
+      container.insertAdjacentHTML('beforeend', `<div class="reminder-add-fields" data-draft-reminder>
+        ${input('new_title_'+index,'任务名称','','required maxlength="60" placeholder="例如：出门散步"')}
+        ${input('new_time_'+index,'提醒时间','','type="time" required')}
+        <button type="button" class="reminder-minus" data-v1="removeReminder" aria-label="移除此新增任务">−</button></div>`);
+      container.lastElementChild.querySelector('input').focus();
+    }
+    function removeReminderRow(button) {
+      const draft = button.closest('[data-draft-reminder]');
+      if (draft) { draft.remove(); return; }
+      const row = button.closest('[data-saved-reminder]');
+      const field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'remove_'+row.dataset.savedReminder;
+      field.value = '1';
+      button.form.append(field);
+      const group = row.parentElement;
+      row.remove();
+      if (!group.querySelector('[data-saved-reminder]')) group.remove();
+      toast('已移出列表，保存提醒后生效');
     }
     function configureRewards(data) {
       const s = vNow().settings;
@@ -283,11 +397,15 @@
         } : undefined);
         const result = await response.json();
         if (!response.ok) throw new Error();
-        modelStatus = result.enabled ? (deep?'模型测试成功':'模型已配置，等待你选择调用') +
+        modelEnabled = result.enabled === true;
+        modelStatus = modelEnabled ? (deep?'模型测试成功':'模型已配置，等待你选择调用') +
           ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token · 估算 $' + (result.cost ?? 0) :
           '基础教练模式 · 尚未配置模型';
-      } catch { modelStatus = '基础教练模式 · 模型连接不可用'; }
-      if (page() === 'v1' || page() === 'v1settings') paint();
+      } catch {
+        if (!deep) modelEnabled = false;
+        modelStatus = '基础教练模式 · 模型连接不可用';
+      }
+      if (['v1','v1settings','v1review'].includes(page())) paint();
     }
     async function reply(text, useModel) {
       const v = vNow();
@@ -317,6 +435,26 @@
       const {v1: name,value} = b.dataset, v = vNow(), state = getState();
       try {
         if (name === 'tab') return selectTab(value);
+        if (name === 'addReminder') return addReminderDraft();
+        if (name === 'removeReminder') return removeReminderRow(b);
+        if (name === 'generateReview') return void generateReview(value);
+        if (name === 'openReview') {
+          const prompt = v.reviewPrompts?.[value];
+          if (!prompt) return;
+          day = prompt.day;
+          selectTab('review');
+          const section = document.getElementById(prompt.kind === 'daily' ? 'daily-review' : 'weekly-review');
+          section?.scrollIntoView({block:'start'});
+          return;
+        }
+        if (name === 'startReview') {
+          if (V.startReview(v,value)) {
+            paint();
+            document.getElementById('v1-input')?.focus();
+          }
+          return;
+        }
+        if (name === 'dismissReview') V.finishReview(v,value);
         if (name === 'emotion') {
           const field = document.getElementById('v1-input');
           field.placeholder = '比如：我现在觉得很烦，脑子里总在想……';
@@ -354,7 +492,10 @@
         if (name === 'resume') { state.settings.pausedUntil = 0; toast('已恢复监督'); }
         if (name === 'agreeTime') V.agreeTime(v);
         if (name === 'timer') V.timerAction(v,value);
-        if (name === 'skipReview') v.reviews[day] = {skipped:true};
+        if (name === 'skipReview') {
+          v.reviews[day] ??= {skipped:true};
+          V.finishReview(v,'daily/'+day);
+        }
         if (name === 'deleteMemory') v.memory=v.memory.filter(row=>row.id!==value);
         if (name === 'rememberCase') {
           const rec = v.events.find(row=>row.type==='detour' && row.at === Number(value));
@@ -395,13 +536,32 @@
           case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
-          case 'daily': lastReview=P.clean(data.note,1500);v.reviews[day]={note:lastReview,summary:V.dailyText(v,day)};V.achievements(state,new Date());toast('复盘已保存');break;
+          case 'daily':
+            lastReview=P.clean(data.note,1500);
+            v.reviews[day]={note:lastReview,summary:V.dailyText(v,day)};
+            V.finishReview(v,'daily/'+day);
+            V.achievements(state,new Date());toast('复盘已保存');break;
           case 'tomorrow': {
             const rows=[0,1,2].map(i=>({title:data['title'+i],when:data['when'+i],firstStep:data['step'+i]})).filter(row=>row.title.trim());
             P.savePlan(state,P.shiftDate(date(),1),rows,lastReview);
             toast('明日任务清单已确认'); break;
           }
           case 'quote': if(data.theme.trim()&&data.a.trim()&&data.b.trim()) v.customQuotes.push({id:P.uid(),theme:data.theme.trim(),lines:[data.a.trim(),data.b.trim()]});break;
+          case 'quoteSchedule': {
+            const available = [...V.catalog.quotes,...v.customQuotes].filter(row=>!['hidden','dislike'].includes(v.preferences[row.id]));
+            const thisWeek = V.monday(date());
+            const weeks = v.scheduledQuotes ??= {};
+            for (const [target, selection] of [[thisWeek,data.thisWeek],[P.shiftDate(thisWeek,7),data.nextWeek]]) {
+              if (available.some(row=>row.id===selection)) weeks[target] = selection;
+              else if (Object.hasOwn(weeks,target)) {
+                delete weeks[target];
+                if (target === thisWeek) delete v.quoteByWeek[thisWeek];
+              }
+            }
+            V.chooseQuote(v,date());
+            toast('晨间语录安排已保存');
+            break;
+          }
           case 'idea': if(data.text.trim()){v.ideas.push({id:P.uid(),text:P.clean(data.text,500),at:Date.now()});V.message(v,'灵感已保存。我们可以回到原来那件事，先打开需要用的材料。');selectTab('chat');}break;
           case 'memory': {
             if (!data.text.trim()) break;

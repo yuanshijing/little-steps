@@ -38,7 +38,7 @@ button:focus-visible { outline-color: #9a78df; }
 .rhythm-status { color: #6d6580; margin-top: 2px; display: block; font-size: 11px; font-weight: 550; }
 .reminder-group { margin: 18px 0; padding: 4px 16px 8px; }
 .reminder-group legend { padding: 0 6px; font-size: 14px; font-weight: 750; color: #5b4673; }
-.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(65px, auto) 8rem auto; align-items: center; gap: 12px; padding: 12px 0; }
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(65px, auto) 8rem auto 36px; align-items: center; gap: 12px; padding: 12px 0; }
 .reminder-row + .reminder-row { border-top: 1px solid var(--line); }
 .reminder-row .reminder-toggle { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; }
 .reminder-toggle input, [data-v1-form="schedule"] input { accent-color: var(--lav); }
@@ -46,8 +46,12 @@ button:focus-visible { outline-color: #9a78df; }
 .reminder-task { min-width: 0; overflow-wrap: anywhere; }
 .reminder-task .reminder-name { margin-top: 7px; }
 .reminder-open { white-space: nowrap; min-height: 37px; }
-.reminder-add-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(8rem,.35fr); gap: 14px; }
+.reminder-add-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(8rem,.35fr) 36px; gap: 14px; align-items: end; }
 .reminder-add { background: #faf7ff; }
+.reminder-add > button { margin: 8px 0; }
+.reminder-add-fields .reminder-minus { margin-bottom: 9px; }
+.reminder-minus { display: grid; place-items: center; min-width: 36px; min-height: 36px; border-radius: 9px; border: 1px solid #eddbe8; background: #fff; color: #8b3568; font-size: 20px; }
+.reminder-minus:hover { background: #fbecf5; }
 .reminder-details { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
 .reminder-details summary { cursor: pointer; font-weight: 700; }
 .coach-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, .38fr); gap: 15px; }
@@ -71,6 +75,11 @@ button:focus-visible { outline-color: #9a78df; }
 .daily-records li strong, .weekly-records li strong { overflow-wrap: anywhere; }
 .review-note { background: #f8f4ff; padding: 14px 16px; margin-bottom: 20px; border-radius: 12px; }
 .review-note h3 { margin-top: 0; }
+.review-summary, .review-prompt { padding: 14px 17px; margin: 12px 0 18px; background: #f4effc; border: 1px solid #e9def9; border-radius: 12px; }
+.review-summary-title, .review-prompt { display: flex; gap: 9px 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.review-summary-title h3 { margin: 0 0 7px; }
+.review-summary-title span { color: #62517d; font-size: 12px; }
+.review-summary .subtle { margin-top: 10px; }
 .weekly-quote { margin: 16px 0 0; padding: 16px 20px; background: #f5efff; border-left: 3px solid #9d7aca; border-radius: 10px; }
 .weekly-quote p { margin: 7px 0 0; }
 .quote-row { padding: 14px 0; }
@@ -127,11 +136,11 @@ button:focus-visible { outline-color: #9a78df; }
   .sky-summary { padding: 17px; flex-wrap: wrap; gap: 15px; }
   .sky-summary dl { width: 100%; justify-content: space-between; gap: 8px; }
   .star-tile { padding: 11px; }
-  .reminder-row { grid-template-columns: minmax(0, 1fr) minmax(0, 7rem); gap: 5px 8px; }
-  .reminder-row > .field { grid-column: 2; grid-row: 1; }
+  .reminder-row { grid-template-columns: minmax(0, 1fr) minmax(0, 6.1rem) 36px; gap: 5px 6px; }
+  .reminder-row > .field { grid-column: 2 / 4; grid-row: 1; }
   .reminder-row .rhythm-status { padding-left: 23px; }
   .reminder-open { grid-column: 2; justify-self: end; }
-  .reminder-add-fields { gap: 8px; }
+  .reminder-add-fields { grid-template-columns: minmax(0,1fr) minmax(0,6.6rem) 36px; gap: 6px; }
   .daily-records li { padding: 9px 10px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -53,12 +53,19 @@
     return P.shiftDate(day, -offset);
   }
   const isCustom = (v, id) => typeof id === 'string' && id.startsWith('custom-') && Object.hasOwn(v.settings.times, id);
-  const reminderIds = v => [...ids, ...Object.keys(v.settings.times).filter(id => isCustom(v, id))];
+  const allReminderIds = v => [...ids, ...Object.keys(v.settings.times).filter(id => isCustom(v, id))];
+  const reminderIds = v => allReminderIds(v).filter(id => !v.settings.times[id].removed);
   const title = (v, id) => isCustom(v, id) ? v.settings.times[id].title : id === 'return' ? '偏航回归' : data[id]?.title;
   function chooseQuote(v, day, replace = false) {
     const week = monday(day);
     const pool = [...catalog.quotes, ...v.customQuotes].filter(q => !['hidden', 'dislike'].includes(v.preferences[q.id]));
     const previous = v.quoteByWeek[week];
+    const planned = pool.find(q => q.id === v.scheduledQuotes?.[week]);
+    if (planned) {
+      v.quoteByWeek[week] = planned.id;
+      if (!v.usedQuotes.includes(planned.id)) v.usedQuotes.push(planned.id);
+      return planned;
+    }
     if (!pool.length) { delete v.quoteByWeek[week]; return null; }
     const current = pool.find(q => q.id === previous);
     if (current && !replace) return current;
@@ -91,6 +98,7 @@
     const v = init(state);
     const day = P.dateKey(now);
     if (!ids.includes(id) && !isCustom(v, id) && id !== 'return') return false;
+    if (v.settings.times[id]?.removed) return false;
     const item = record(v, day, id);
     if (source !== 'manual' && (item.status !== '待执行' || !v.settings.times[id]?.enabled)) return false;
     if (v.active?.id === id && v.active.day === day) return false;
@@ -130,7 +138,7 @@
     const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
     const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
     message(v, [intro, quote, list].filter(Boolean).join('\n\n'), 'coach', {source, at:now.getTime()});
-    if (item.id === 'sleep') message(v, '先看看今天的记录。你可以简短复盘、补充情况，或直接休息。\n' + dailyText(v, item.day));
+    if (item.id === 'sleep') promptReview(v, 'daily', item.day, now);
     event(v, 'reminder', now, { id: item.id, key: item.key, source });
     return true;
   }
@@ -138,6 +146,30 @@
     const item = v.records[v.active?.key];
     if (item && !item.completedAt) item.status = status;
     v.active = null;
+  }
+  function promptReview(v, kind, day, now) {
+    const prompts = v.reviewPrompts ??= {};
+    const key = kind + '/' + (kind === 'weekly' ? monday(day) : day);
+    if (prompts[key] || (kind === 'daily' && v.reviews[day])) return;
+    prompts[key] = {kind, day, at:now.getTime(), pending:true};
+    const text = kind === 'daily'
+      ? '睡前复盘时间到了。今天有哪一步值得记下来？也可以说说哪里卡住了，或者今晚先休息。'
+      : '到每周复盘时间了。这周哪一种做法最帮得上你？我们可以一起看看任务完成情况和偏航记录。';
+    message(v, text, 'coach', {source:'review', at:now.getTime()});
+    return true;
+  }
+  function startReview(v,key) {
+    const row = v.reviewPrompts?.[key];
+    if (!row?.pending || v.reviewSession === key) return false;
+    v.reviewSession = key;
+    message(v, row.kind === 'daily' ? '开始睡前复盘' : '开始每周复盘', 'you');
+    message(v, row.kind === 'daily' ? '用一两句话说说今天做到了什么，或者哪一步最难。'
+      : '这周有没有哪一次，你发现某种做法特别有帮助？也可以说说反复遇到的障碍。');
+    return true;
+  }
+  function finishReview(v,key) {
+    if (v.reviewPrompts?.[key]) v.reviewPrompts[key].pending = false;
+    if (v.reviewSession === key) v.reviewSession = null;
   }
   function go(v, stage, now, delay, extra = {}) {
     Object.assign(v.active, { stage, attempts: 0, due: delay == null ? null : now.getTime() + delay * M,
@@ -361,7 +393,7 @@
       case 'bedtime':
         if (index === 0) finishBed();
         else if (index === 1) f('bedtime', s.intervals.bedtime);
-        else { v.reviews[item.day] ??= { skipped: true }; park(v, '未记录'); }
+        else { v.reviews[item.day] ??= { skipped: true }; finishReview(v,'daily/'+item.day); park(v, '未记录'); }
         break;
       case 'wait':
         if (index === 0) {
@@ -432,10 +464,11 @@
     if (!quiet && now.getDay() === v.settings.weekDay && t >= v.settings.weekTime && !v.weekly[week]) {
       const report = weekly(v, day);
       v.weekly[week] = report;
-      message(v, '本周复盘已整理。完成、跳过与未记录分别统计，你可以在「复盘」查看。');
+      promptReview(v, 'weekly', day, now);
       changed = true;
     }
-    v.queue = v.queue.filter(row => row.day === day && time - P.dueAt(day, v.settings.times[row.id].time) < 60 * M);
+    v.queue = v.queue.filter(row => row.day === day && v.settings.times[row.id]?.enabled && !v.settings.times[row.id].removed &&
+      time - P.dueAt(day, v.settings.times[row.id].time) < 60 * M);
     if (!quiet && (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage)) && v.queue.length) {
       const next = v.queue.shift();
       changed = open(state, next.id, now, next.source) || changed;
@@ -446,6 +479,11 @@
       if ((!quiet || ['wake', 'sleep'].includes(id)) && setting.enabled && time >= due && time < due + 30 * M && !v.queue.some(row => row.id === id && row.day === day)) {
         changed = open(state, id, now, 'schedule') || changed;
       }
+    }
+    const sleep = v.settings.times.sleep;
+    const sleepDue = P.dueAt(day,sleep.time);
+    if (sleep.enabled && !sleep.removed && time >= sleepDue && time < sleepDue + 30*M) {
+      changed = Boolean(promptReview(v,'daily',day,now)) || changed;
     }
     return changed;
   }
@@ -482,8 +520,9 @@
     return v.timers.findLast(row => row.key === v.active?.key) ?? null;
   }
   function dailyRows(v, day) {
-    return reminderIds(v).map(id => {
+    return allReminderIds(v).map(id => {
       const row = v.records[day + '/' + id];
+      if (!row && v.settings.times[id].removed) return null;
       if (isCustom(v, id) && !row && v.settings.times[id].addedDay > day) return null;
       const status = ['待执行', '待回复', '已提醒'].includes(row?.status) ? '未记录' : row?.status ?? '未记录';
       return {title:title(v,id),status,completedAt:row?.completedAt};
@@ -496,11 +535,12 @@
   function weekly(v, day) {
     const first = P.shiftDate(day, -6);
     const records = Object.values(v.records).filter(row => row.day >= first && row.day <= day);
-    const stats = reminderIds(v).map(id => {
+    const stats = allReminderIds(v).map(id => {
       const added = v.settings.times[id].addedDay;
-      const period = !added || added <= first ? 7 : Array.from({length:7}, (_, index) => P.shiftDate(first,index)).filter(day => day >= added).length;
-      if (!period) return null;
       const entries = records.filter(row => row.id === id);
+      const period = v.settings.times[id].removed ? entries.length : !added || added <= first ? 7
+        : Array.from({length:7}, (_, index) => P.shiftDate(first,index)).filter(day => day >= added).length;
+      if (!period) return null;
       const completed = entries.filter(row => row.completedAt).length;
       const skipped = entries.filter(row => row.status === '主动跳过').length;
       const incomplete = entries.filter(row => row.status === '未完成').length;
@@ -561,6 +601,22 @@
       message(v, '已暂停监督一小时，你可以随时恢复。');
       return 'local';
     }
+    const reviewKey = v.reviewSession;
+    const review = v.reviewPrompts?.[reviewKey];
+    const today = P.dateKey(now);
+    const currentReview = review?.kind === 'daily' ? review.day === today
+      : review && monday(review.day) === monday(today);
+    if (review?.pending && currentReview) {
+      if (review.kind === 'daily') {
+        v.reviews[review.day] = {note:text,summary:dailyText(v,review.day)};
+        achievements(state,now);
+      } else {
+        (v.weekNotes ??= {})[review.day] = text;
+      }
+      finishReview(v,reviewKey);
+      message(v,'已把你这段反馈记进复盘。你可以打开对应的复盘查看总结。');
+      return 'local';
+    }
     const a = v.active;
     const delay = text.match(/(\d{1,4})\s*分钟/);
     if (delay && a?.stage === 'wait' && setFollow(v, Number(delay[1]), now)) return 'local';
@@ -580,6 +636,6 @@
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, title, record, message, open, options, choose, park,
-    tick, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
+  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, title, record, message, open, options, choose, park,
+    tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });
