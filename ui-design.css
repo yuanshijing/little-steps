@@ -38,14 +38,7 @@ button:focus-visible { outline-color: #9a78df; }
 .rhythm-status { color: #6d6580; margin-top: 2px; display: block; font-size: 11px; font-weight: 550; }
 .reminder-group { margin: 18px 0; padding: 4px 16px 8px; }
 .reminder-group legend { padding: 0 6px; font-size: 14px; font-weight: 750; color: #5b4673; }
-.reminder-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(65px, auto) 8rem auto 36px; align-items: center; gap: 12px; padding: 12px 0; }
-.reminder-row.is-dragging { background: #f6efff; }
-.reminder-sort { display: grid; gap: 3px; justify-items: stretch; }
-.reminder-sort > div { display: flex; justify-content: center; gap: 2px; }
-.reminder-grip, .reminder-sort button { border: 1px solid var(--line); color: #5f467e; border-radius: 7px; background: #faf7ff; }
-.reminder-grip { display: grid; place-items: center; min-height: 29px; user-select: none; touch-action: none; cursor: grab; font-size: 19px; line-height: 1; }
-.is-dragging .reminder-grip { cursor: grabbing; }
-.reminder-sort button { padding: 0 3px; font-size: 11px; min-height: 20px; }
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(65px, auto) 8rem auto 36px; align-items: center; gap: 12px; padding: 12px 0; }
 .reminder-row + .reminder-row { border-top: 1px solid var(--line); }
 .reminder-row .reminder-toggle { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; }
 .reminder-toggle input, [data-v1-form="schedule"] input { accent-color: var(--lav); }
@@ -65,6 +58,7 @@ button:focus-visible { outline-color: #9a78df; }
 .section-links { display: grid; gap: 7px; }
 .section-links button { text-align: left; min-height: 40px; }
 .bubble-speaker { display: block; font-size: 11px; font-weight: 800; color: #584779; margin-bottom: 3px; }
+.chat-usage { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .v1-card .bubble { line-height: 1.65; padding: 12px 15px; }
 .v1-card :where(label:has(> .field)) { display: grid; gap: 5px; margin: 10px 0; font-weight: 650; }
 .v1-card .field { margin-top: 4px; }
@@ -143,12 +137,11 @@ button:focus-visible { outline-color: #9a78df; }
   .sky-summary { padding: 17px; flex-wrap: wrap; gap: 15px; }
   .sky-summary dl { width: 100%; justify-content: space-between; gap: 8px; }
   .star-tile { padding: 11px; }
-  .reminder-row { grid-template-columns: 31px minmax(0, 1fr) minmax(0, 5.5rem) 33px; gap: 5px 6px; }
-  .reminder-sort { grid-column: 1; grid-row: 1 / 3; }
-  .reminder-row > .field { grid-column: 3 / 5; grid-row: 1; padding-inline: 5px; }
-  .reminder-row .rhythm-status { grid-column: 2; grid-row: 2; }
-  .reminder-open { grid-column: 3; grid-row: 2; justify-self: end; }
-  .reminder-row .reminder-minus { grid-column: 4; grid-row: 2; }
+  .reminder-row { grid-template-columns: minmax(0, 1fr) minmax(0, 5.5rem) 33px; gap: 5px 6px; }
+  .reminder-row > .field { grid-column: 2 / 4; grid-row: 1; padding-inline: 5px; }
+  .reminder-row .rhythm-status { grid-column: 1; grid-row: 2; }
+  .reminder-open { grid-column: 2; grid-row: 2; justify-self: end; }
+  .reminder-row .reminder-minus { grid-column: 3; grid-row: 2; }
   .reminder-add-fields { grid-template-columns: minmax(0,1fr) minmax(0,6.6rem) 36px; gap: 6px; }
   .daily-records li { padding: 9px 10px; }
 }

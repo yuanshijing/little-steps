@@ -297,6 +297,7 @@
     }
     if (day !== lastObservedDay) {
       lastObservedDay = day;
+      void v1View.refreshUsage();
       if (page === 'growth') render();
     }
     updateTimer();

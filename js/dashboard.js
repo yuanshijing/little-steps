@@ -55,22 +55,19 @@
     const v = V.init(state);
     const day = P.dateKey(now);
     return `<fieldset class="reminder-group"><legend>提醒任务</legend>
-      <p class="subtle">拖动每行左侧的手柄排序，也可以用上下箭头。排序后点「保存提醒」。</p>
+      <p class="subtle">按提醒时间自动排序，以早上 06:00 为起点，凌晨 00:00–05:59 排在最后。</p>
       <div id="reminder-list">${V.displayReminderIds(v).map(id => {
       const {time, enabled} = v.settings.times[id];
       const title = esc(V.title(v,id));
       const custom = V.isCustom(v,id);
       const active = v.active?.id === id && v.active.day === day;
       return `<div class="reminder-row" data-saved-reminder="${esc(id)}">
-        <div class="reminder-sort"><span class="reminder-grip" aria-hidden="true" title="按住拖动排序">⠿</span>
-        <div><button type="button" data-v1="moveReminder" data-value="up" aria-label="上移 ${title}">↑</button>
-        <button type="button" data-v1="moveReminder" data-value="down" aria-label="下移 ${title}">↓</button></div></div>
         <div class="reminder-task"><label class="reminder-toggle">
         <input type="checkbox" name="enabled_${id}" aria-label="启用${title}提醒" ${enabled ? 'checked' : ''}>
         ${custom ? '<span>启用提醒</span>' : '<strong>' + title + '</strong>'}</label>
         ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}</div>
         <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id))}</span>
-        <input type="time" class="field" name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
+        <input type="time" class="field" data-reminder-time name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
         <button type="button" class="secondary small reminder-open" data-v1="open" data-value="${esc(id)}" aria-label="${title} · ${active ? '继续对话' : '现在聊聊'}">${active ? '继续对话' : '现在聊聊'}</button>
         <button type="button" class="reminder-minus" data-v1="removeReminder" aria-label="移除${title}">−</button>
         </div>`;

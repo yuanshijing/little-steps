@@ -55,10 +55,13 @@
   const isCustom = (v, id) => typeof id === 'string' && id.startsWith('custom-') && Object.hasOwn(v.settings.times, id);
   const allReminderIds = v => [...ids, ...Object.keys(v.settings.times).filter(id => isCustom(v, id))];
   const reminderIds = v => allReminderIds(v).filter(id => !v.settings.times[id].removed);
+  function reminderTimeOrder(time) {
+    if (!P.timeOk(time)) return Infinity;
+    const [hours, minutes] = time.split(':').map(Number);
+    return (hours*60 + minutes - 6*60 + 24*60) % (24*60);
+  }
   function displayReminderIds(v) {
-    const ids = reminderIds(v);
-    const order = Array.isArray(v.settings.reminderOrder) ? v.settings.reminderOrder : [];
-    return [...new Set([...order.filter(id=>ids.includes(id)),...ids])];
+    return reminderIds(v).sort((a,b)=>reminderTimeOrder(v.settings.times[a].time)-reminderTimeOrder(v.settings.times[b].time));
   }
   const title = (v, id) => isCustom(v, id) ? v.settings.times[id].title : id === 'return' ? '偏航回归' : data[id]?.title;
   function chooseQuote(v, day, replace = false) {
@@ -666,6 +669,6 @@
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, title, record, message, open, options, choose, park,
+  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, reminderTimeOrder, title, record, message, open, options, choose, park,
     tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });

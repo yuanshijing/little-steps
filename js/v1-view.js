@@ -27,9 +27,9 @@
     let modelOptions = [];
     let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
     let modelEnabled = false;
+    let todayTokens;
     let reviewPending = '';
     let draftSequence = 0;
-    let dragSort;
     let audio;
     const remindersAudible = () => vNow().settings.reminderSound !== false;
     async function armAudio() {
@@ -106,6 +106,7 @@
       const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
         .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
+        <p id="chat-usage" class="chat-usage">${usageLabel()}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
         ${v.queue.filter(row=>row.day===date() && v.records[row.day+'/'+row.id]?.notifiedAt != null).map(row=>
@@ -228,6 +229,7 @@
       } finally {
         reviewPending = '';
         refresh();
+        void refreshUsage();
       }
     }
     function reviewPage(v) {
@@ -337,7 +339,7 @@
       }
     }
     function selectTab(next) { go(routes[next]); }
-    function configureSchedule(data, form) {
+    function configureSchedule(data) {
       const v = vNow(), s = v.settings;
       const ids = V.reminderIds(v).filter(id => !data['remove_'+id]);
       const rescheduled = new Set(ids.filter(id=>s.times[id].time!==data['time_'+id]));
@@ -374,7 +376,6 @@
         }
       }
       for (const row of drafts) s.times['custom-'+P.uid()] = {...row,enabled:true,addedDay:date()};
-      s.reminderOrder = Array.from(form.querySelectorAll('[data-saved-reminder]'),row=>row.dataset.savedReminder);
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
@@ -403,45 +404,19 @@
       row.remove();
       toast('已移出列表，保存提醒后生效');
     }
-    function moveReminderRow(button,direction) {
-      const row = button.closest('[data-saved-reminder]');
-      const neighbor = direction === 'up' ? row.previousElementSibling : row.nextElementSibling;
-      if (!neighbor) return;
-      if (direction === 'up') neighbor.before(row);
-      else neighbor.after(row);
-      button.focus({preventScroll:true});
-      toast('顺序已调整，保存提醒后生效');
+    function sortReminderRows(field) {
+      const list = document.getElementById('reminder-list');
+      const rows = [...list.children];
+      const rank = row=>V.reminderTimeOrder(row.querySelector('[data-reminder-time]').value);
+      const sorted = rows.slice().sort((a,b)=>rank(a)-rank(b));
+      if (sorted.every((row,index)=>row===rows[index])) return;
+      const focused = document.activeElement === field;
+      list.append(...sorted);
+      if (focused) field.focus({preventScroll:true});
     }
-    document.addEventListener('pointerdown',event=>{
+    document.addEventListener('pointerdown',()=>{
       if (audio?.state !== 'running') void armAudio().catch(()=>{});
-      const grip = event.target.closest('.reminder-grip');
-      if (!grip || !event.isPrimary || event.button !== 0) return;
-      const row = grip.closest('[data-saved-reminder]');
-      const list = row.parentElement;
-      list.setPointerCapture(event.pointerId);
-      dragSort = {row,list,pointerId:event.pointerId,startY:event.clientY,moved:false};
-      row.classList.add('is-dragging');
-      event.preventDefault();
     });
-    document.addEventListener('pointermove',event=>{
-      if (dragSort?.pointerId !== event.pointerId || Math.abs(event.clientY-dragSort.startY) < 5 && !dragSort.moved) return;
-      const {row,list} = dragSort;
-      const target = document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-saved-reminder]');
-      if (!target || target === row || target.parentElement !== list) return;
-      const bounds = target.getBoundingClientRect();
-      if (event.clientY < (bounds.top+bounds.bottom)/2) target.before(row);
-      else target.after(row);
-      dragSort.moved = true;
-    });
-    const finishDrag = event=>{
-      if (dragSort?.pointerId !== event.pointerId) return;
-      dragSort.row.classList.remove('is-dragging');
-      if (dragSort.moved) toast('顺序已调整，保存提醒后生效');
-      dragSort = undefined;
-    };
-    document.addEventListener('pointerup',finishDrag);
-    document.addEventListener('pointercancel',finishDrag);
-    document.addEventListener('lostpointercapture',finishDrag);
     document.addEventListener('keydown',()=>{
       if (audio?.state !== 'running') void armAudio().catch(()=>{});
     });
@@ -462,6 +437,22 @@
       speech.onerror = () => toast('未收到语音，请检查麦克风权限或改用文字');
       speech.start();
     }
+    function usageLabel() {
+      if (!api || !modelEnabled) return '今日累计用量 · 未连接大模型';
+      return '今日累计用量 · ' + (Number.isFinite(todayTokens) ? todayTokens.toLocaleString('zh-CN') + ' Token' : '用量暂不可用');
+    }
+    function updateUsage(status) {
+      todayTokens = status.todayTokens;
+      const label = document.getElementById('chat-usage');
+      if (label) label.textContent = usageLabel();
+    }
+    async function refreshUsage() {
+      if (!api || !modelEnabled) return;
+      try {
+        const response = await fetch('/api/v1/config',{signal:AbortSignal.timeout(5000)});
+        if (response.ok) updateUsage(await response.json());
+      } catch { /* Keep the last confirmed count. */ }
+    }
     async function checkConnection(deep = false) {
       if (!api) return;
       try {
@@ -471,6 +462,7 @@
         const result = await response.json();
         if (!response.ok) throw new Error();
         modelEnabled = result.enabled === true;
+        updateUsage(result);
         modelStatus = modelEnabled ? (deep?'模型测试成功':'模型已配置，等待你选择调用') +
           (result.model ? ' · ' + result.model : '') + ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token' :
           '基础教练模式 · 尚未配置模型';
@@ -495,6 +487,7 @@
           return;
         }
         modelEnabled = true;
+        updateUsage(result);
         modelStatus = 'DeepSeek 已连接并测试成功 · ' + result.model;
         if (['v1','v1settings','v1review'].includes(page())) paint();
         toast('DeepSeek 连接成功');
@@ -525,7 +518,7 @@
         fallback.text = value.reply;
         modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
       } catch { fallback.text = '模型暂不可用，已切回基础教练。\n' + fallback.text; }
-      finally { if (page() === 'v1') paint(); else save(); }
+      finally { if (page() === 'v1') paint(); else save(); void refreshUsage(); }
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
@@ -536,7 +529,6 @@
         if (name === 'tab') return selectTab(value);
         if (name === 'addReminder') return addReminderDraft();
         if (name === 'removeReminder') return removeReminderRow(b);
-        if (name === 'moveReminder') return moveReminderRow(b,value);
         if (name === 'generateReview') return void generateReview(value);
         if (name === 'openReview') {
           const prompt = v.reviewPrompts?.[value];
@@ -625,6 +617,7 @@
     });
     document.addEventListener('change', e => {
       const el=e.target,v=vNow();
+      if (el.matches('[data-reminder-time]')) sortReminderRows(el);
       if (el.id==='v1-review-date' && el.value) {day=el.value; paint();}
       if (el.id==='v1-memory-on') {v.settings.memory=el.checked;save();}
       if (el.matches('[data-v1-quote]')) {v.preferences[el.dataset.v1Quote]=el.value;paint();}
@@ -638,7 +631,7 @@
         switch(form.dataset.v1Form) {
           case 'deepseek': return void connectDeepSeek(form,data.key);
           case 'schedule':
-            if (configureSchedule(data,form) === false) return;
+            if (configureSchedule(data) === false) return;
             break;
           case 'settings': configureRewards(data); break;
           case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
@@ -684,7 +677,7 @@
     });
     if (api) void checkConnection();
     return {
-      screen, selectTab, clock, playReminderSound, playCompletionSound, remindersAudible,
+      screen, selectTab, clock, playReminderSound, playCompletionSound, remindersAudible, refreshUsage,
       tick: now => {
         const v = vNow();
         const count = v.messages.length;
