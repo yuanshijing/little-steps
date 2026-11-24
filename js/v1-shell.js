@@ -32,6 +32,7 @@
   let selectedDay = P.dateKey();
   let context = null;
   let lastObservedDay = P.dateKey();
+  let lastQuoteWeek;
   let toastTimer;
   let modelAvailable = false;
   let modelPending = false;
@@ -266,6 +267,14 @@
   function loop() {
     const now = new Date();
     const day = P.dateKey(now);
+    const V = window.PlanetV1;
+    const week = V.monday(day);
+    if (week !== lastQuoteWeek) {
+      lastQuoteWeek = week;
+      V.chooseQuote(V.init(state), day);
+      save();
+      if (page === 'v1library' && !document.activeElement?.closest('[data-v1-form="quote"]')) render();
+    }
     const timerChange = S.timerTick(state, now);
     if (timerChange) {
       save();
@@ -429,7 +438,7 @@
     export: exportData,
     reset: () => {
       if (!confirm('确定清除当前浏览器保存的任务和记录吗？')) return;
-      state = P.createState(); context = null; editId = ''; save(); go('v1');
+      state = P.createState(); context = null; editId = ''; lastQuoteWeek = undefined; save(); go('v1');
     },
   };
   const forms = {

@@ -58,13 +58,20 @@
   function reminders(state, now = new Date()) {
     const v = V.init(state);
     const day = P.dateKey(now);
-    return rhythm.map(([label, ids]) => `<fieldset class="reminder-group"><legend>${label}</legend>${ids.map(id => {
+    const customIds = V.reminderIds(v).filter(id => V.isCustom(v, id));
+    const groups = customIds.length ? [...rhythm, ['自定义任务', customIds]] : rhythm;
+    return groups.map(([label, ids]) => `<fieldset class="reminder-group"><legend>${label}</legend>${ids.map(id => {
       const {time, enabled} = v.settings.times[id];
-      const title = esc(V.data[id].title);
-      return `<div class="reminder-row"><label class="reminder-toggle">
-        <input type="checkbox" name="enabled_${id}" ${enabled ? 'checked' : ''}> <strong>${title}</strong></label>
+      const title = esc(V.title(v,id));
+      const custom = V.isCustom(v,id);
+      const active = v.active?.id === id && v.active.day === day;
+      return `<div class="reminder-row"><div class="reminder-task"><label class="reminder-toggle">
+        <input type="checkbox" name="enabled_${id}" aria-label="启用${title}提醒" ${enabled ? 'checked' : ''}>
+        ${custom ? '<span>启用提醒</span>' : '<strong>' + title + '</strong>'}</label>
+        ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}</div>
         <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id))}</span>
         <input type="time" class="field" name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
+        <button type="button" class="secondary small reminder-open" data-v1="open" data-value="${esc(id)}" aria-label="${title} · ${active ? '继续对话' : '现在聊聊'}">${active ? '继续对话' : '现在聊聊'}</button>
         </div>`;
     }).join('')}</fieldset>`).join('');
   }

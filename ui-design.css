@@ -22,31 +22,69 @@ button:focus-visible { outline-color: #9a78df; }
 .title { font-size: clamp(24px, 3.2vw, 34px); }
 .eyebrow { color: #70617e; letter-spacing: .04em; }
 .stars { display: flex; align-items: center; gap: 6px; border: 1px solid #efe6d1; background: #fff9ed; color: #67431d; padding: 9px 13px; font-size: 13px; }
-.surface { background: #fff; border-radius: 19px; padding: 21px; }
+.surface { background: #fff; border-radius: 19px; padding: 24px; line-height: 1.65; }
 .section-title, .star-history h2 { margin: 0 0 11px; font-size: 17px; font-weight: 800; }
+.surface p { margin: 0 0 12px; }
+.surface p:last-child { margin-bottom: 0; }
+.surface form { margin-top: 12px; }
+.surface h3 { font-size: 15px; line-height: 1.55; margin: 20px 0 9px; }
+.surface form .controls { margin-top: 14px; }
+.surface .field { line-height: 1.5; }
+.notice { margin: 0 0 15px; padding: 11px 14px; }
 .primary:hover { background: #573a9f; }
 .secondary:hover { background: #f5f0ff; border-color: #cbbbee; }
 .subtle, small { line-height: 1.55; }
 .notice { color: #625477; line-height: 1.65; }
 .rhythm-status { color: #6d6580; margin-top: 2px; display: block; font-size: 11px; font-weight: 550; }
-.reminder-group { margin: 18px 0; padding: 2px 14px 6px; }
+.reminder-group { margin: 18px 0; padding: 4px 16px 8px; }
 .reminder-group legend { padding: 0 6px; font-size: 14px; font-weight: 750; color: #5b4673; }
-.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, auto) 8.5rem; align-items: center; gap: 10px; padding: 9px 0; }
+.reminder-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(65px, auto) 8rem auto; align-items: center; gap: 12px; padding: 12px 0; }
 .reminder-row + .reminder-row { border-top: 1px solid var(--line); }
 .reminder-row .reminder-toggle { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; }
 .reminder-toggle input, [data-v1-form="schedule"] input { accent-color: var(--lav); }
 .reminder-row .field { margin-top: 0; }
+.reminder-task { min-width: 0; overflow-wrap: anywhere; }
+.reminder-task .reminder-name { margin-top: 7px; }
+.reminder-open { white-space: nowrap; min-height: 37px; }
+.reminder-add-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(8rem,.35fr); gap: 14px; }
+.reminder-add { background: #faf7ff; }
 .reminder-details { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; }
 .reminder-details summary { cursor: pointer; font-weight: 700; }
 .coach-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, .38fr); gap: 15px; }
 .section-links { display: grid; gap: 7px; }
 .section-links button { text-align: left; min-height: 40px; }
 .bubble-speaker { display: block; font-size: 11px; font-weight: 800; color: #584779; margin-bottom: 3px; }
+.v1-card .bubble { line-height: 1.65; padding: 12px 15px; }
+.v1-card :where(label:has(> .field)) { display: grid; gap: 5px; margin: 10px 0; font-weight: 650; }
 .v1-card .field { margin-top: 4px; }
 .v1-card .v1-line .field { width: auto; max-width: 100%; }
 .review-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .review-navigation a { text-decoration: none; }
 #daily-review, #tomorrow-plan, #weekly-review { scroll-margin-top: 14px; }
+.review-date { max-width: 14rem; }
+.daily-records, .weekly-records { margin: 0 0 20px; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+.daily-records li, .weekly-records li { display: grid; gap: 4px 12px; padding: 10px 14px; line-height: 1.6; }
+.daily-records li { grid-template-columns: minmax(0,1fr) auto; }
+.daily-records li + li, .weekly-records li + li { border-top: 1px solid var(--line); }
+.daily-records li:nth-child(even), .weekly-records li:nth-child(even) { background: #faf8fe; }
+.daily-records li span, .weekly-records li span { color: var(--muted); font-size: 13px; }
+.daily-records li strong, .weekly-records li strong { overflow-wrap: anywhere; }
+.review-note { background: #f8f4ff; padding: 14px 16px; margin-bottom: 20px; border-radius: 12px; }
+.review-note h3 { margin-top: 0; }
+.weekly-quote { margin: 16px 0 0; padding: 16px 20px; background: #f5efff; border-left: 3px solid #9d7aca; border-radius: 10px; }
+.weekly-quote p { margin: 7px 0 0; }
+.quote-row { padding: 14px 0; }
+.quote-row p { margin: 3px 0 0; }
+.reward-sparks { position: absolute; bottom: 72%; left: 50%; pointer-events: none; }
+.reward-sparks span { position: absolute; color: #a453cf; font-size: 23px; opacity: 0; animation: reward-spark .8s var(--delay) ease-out both; }
+.reward-sparks span:nth-child(3n) { color: #d08824; }
+.reward-sparks span:nth-child(3n + 1) { color: #d0629a; }
+@keyframes reward-spark {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(.4); }
+  30% { opacity: 1; }
+  75% { opacity: .9; }
+  100% { opacity: 0; transform: translate(var(--x), var(--y)) rotate(45deg) scale(1.25); }
+}
 .sky-summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: radial-gradient(ellipse at 90% 5%,#65428d,transparent 67%),#34204f; border-radius: 22px; color: #fff; padding: 24px 27px; }
 .sky-summary h2 { margin: 0 0 7px; font-size: 24px; }
 .sky-summary p { color: #f0e4f8; margin: 0; font-size: 13px; }
@@ -89,8 +127,14 @@ button:focus-visible { outline-color: #9a78df; }
   .sky-summary { padding: 17px; flex-wrap: wrap; gap: 15px; }
   .sky-summary dl { width: 100%; justify-content: space-between; gap: 8px; }
   .star-tile { padding: 11px; }
-  .reminder-row { grid-template-columns: minmax(0, 1fr) minmax(0, 7.5rem); gap: 3px 8px; }
-  .reminder-row .field { grid-column: 2; grid-row: 1 / span 2; }
+  .reminder-row { grid-template-columns: minmax(0, 1fr) minmax(0, 7rem); gap: 5px 8px; }
+  .reminder-row > .field { grid-column: 2; grid-row: 1; }
   .reminder-row .rhythm-status { padding-left: 23px; }
+  .reminder-open { grid-column: 2; justify-self: end; }
+  .reminder-add-fields { gap: 8px; }
+  .daily-records li { padding: 9px 10px; }
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+  .reward-sparks { display: none; }
+}

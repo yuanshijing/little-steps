@@ -9,6 +9,7 @@
   const input = (name, text, value = '', attrs = '') => `<label>${esc(text)}<input class="field" name="${name}" value="${esc(value)}" ${attrs}></label>`;
   const when = (name, text, value) => input(name, text, value, 'type="time" required');
   const number = (name, text, value, min = 1, max = 120) => input(name, text, value, `type="number" min="${min}" max="${max}" required`);
+  const messageSources = {schedule:'定时提醒',transition:'环节衔接',manual:'主动开启'};
   const values = { wake: '已醒未离床', rise: '坐起尚未站立', wash: '洗漱', start: '准备开始',
     switch: '活动切换', returning: '偏航回归', bedtime: '睡前收尾', unanswered: '未回复' };
   const levelName = { basic: '完成积分', advanced: '进阶总积分', wakeLimit: '起床宽限分钟', startLimit: '启动宽限分钟',
@@ -26,7 +27,6 @@
     let modelOptions = [];
     let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
     let audio;
-    const view = () => document.getElementById('view');
     async function armAudio() {
       const Context = window.AudioContext || window.webkitAudioContext;
       if (!vNow().settings.sound || !Context) return false;
@@ -34,31 +34,51 @@
       if (audio.state === 'suspended') await audio.resume().catch(() => {});
       return audio.state === 'running';
     }
-    function playSound(award, ready) {
-      if (!ready || !vNow().settings.sound) return;
-      const bedtime = award.id === 'sleep';
-      const notes = bedtime ? [392, 523] : award.level === 2 ? [523, 659, 784, 1047] : [523, 659, 784];
-      notes.forEach((frequency, index) => {
-        const start = audio.currentTime + index * 0.09;
+    function playSound(level = 1) {
+      if (!vNow().settings.sound || audio?.state !== 'running') return;
+      const notes = [
+        [659, 0, .044, .18], [784, .045, .035, .22], [1047, .095, .038, .26],
+        [1319, .13, .020, .21], [1568, .155, .015, .19], [2093, .24, .010, .17],
+        [1760, .303, .009, .23], [2637, .37, .006, .19],
+      ];
+      if (level === 2) notes.push([1047, .24, .022, .40], [3136, .41, .006, .24]);
+      for (const [frequency, offset, volume, duration] of notes) {
+        const start = audio.currentTime + offset;
         const osc = audio.createOscillator();
         const gain = audio.createGain();
+        osc.type = 'sine';
         osc.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.001, start);
-        gain.gain.exponentialRampToValueAtTime(bedtime ? 0.018 : 0.055, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.17);
+        gain.gain.setValueAtTime(.0001, start);
+        gain.gain.exponentialRampToValueAtTime(volume, start + .008);
+        gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
         osc.connect(gain).connect(audio.destination);
-        osc.start(start); osc.stop(start + 0.18);
-      });
+        osc.start(start);
+        osc.stop(start + duration + .01);
+      }
     }
-    function reward(award, audioReady) {
+    function reward(award) {
       if (!award) return;
       const el = document.createElement('div');
       el.className = 'v1-celebration ' + (award.id === 'sleep' ? 'quiet' : award.level === 2 ? 'bright' : '');
       el.setAttribute('role', 'status');
       el.textContent = award.text + '　⭐ +' + award.bonus + ' · ' + award.star;
+      if (award.id !== 'sleep') {
+        const sparks = document.createElement('span');
+        sparks.className = 'reward-sparks';
+        sparks.setAttribute('aria-hidden', 'true');
+        for (const [index, x] of [-95,-69,-44,-19,20,45,70,96].entries()) {
+          const spark = document.createElement('span');
+          spark.textContent = index % 2 ? '✧' : '✦';
+          spark.style.setProperty('--x', x + 'px');
+          spark.style.setProperty('--y', -(42 + (index * 13) % 46) + 'px');
+          spark.style.setProperty('--delay', index * 18 + 'ms');
+          sparks.append(spark);
+        }
+        el.append(sparks);
+        void armAudio().then(ready => { if (ready) playSound(award.level); }).catch(() => {});
+      }
       document.body.append(el);
       setTimeout(() => el.remove(), 3700);
-      void audioReady.then(ready => playSound(award, ready)).catch(() => {});
     }
     function chatPage(v) {
       const a = v.active;
@@ -69,8 +89,8 @@
       const paused = getState().settings.pausedUntil > Date.now();
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
-          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${row.source === 'schedule' || row.source === 'transition' ? ' · ' + (row.source === 'schedule' ? '定时提醒' : '环节衔接') + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
-        ${a ? `<p><b>${esc(V.data[a.id]?.title ?? '偏航回归')}</b> <span class="subtle">${esc(due)}</span></p>
+          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
+        ${a ? `<p><b>${esc(V.title(v, a.id))}</b> <span class="subtle">${esc(due)}</span></p>
         ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
         <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
         ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}${btn('remindOff','关闭该环节提醒')}</div>${custom}` : ''}
@@ -95,8 +115,11 @@
     }
     function schedulePage(v) {
       const state = getState();
-      return card('八项提醒时间', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
+      return card('固定提醒和自定义任务', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。你也可以点「现在聊聊」提前进入对应对话。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
         <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
+        <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend><div class="reminder-add-fields">
+        ${input('new_title','任务名称','','maxlength="60" placeholder="例如：出门散步"')}
+        ${input('new_time','提醒时间','','type="time"')}</div></fieldset>
         <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
         <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
         ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div></details>
@@ -108,7 +131,7 @@
     function settingsPage(v) {
       return card('奖励与音效', `<form data-v1-form="settings">
         <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
-        <div class="controls">${btn('soundDemo','试听奖励音效','normal')}${btn('soundDemo','试听睡前音效','sleep')}</div>
+        <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div><p class="subtle">睡前奖励为静音。</p>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
         <button class="primary">保存奖励设置</button></form>`) +
         card('教练偏好与数据', `<div class="controls">
@@ -119,7 +142,7 @@
     function reviewPage(v) {
       const row = v.reviews[day];
       const report = V.weekly(v, day);
-      const one = V.dailyText(v, day);
+      const dayRows = V.dailyRows(v, day);
       const todayCases = v.events.filter(event => event.day === day && event.type === 'detour');
       const tomorrow = P.shiftDate(date(), 1);
       const plan = getState().plans[tomorrow]?.items ?? [];
@@ -128,12 +151,14 @@
         <a class="secondary small" href="#tomorrow-plan">明日重点</a><a class="secondary small" href="#weekly-review">每周复盘</a>
         ${btn('tab','查看长期记忆','memory')}</nav>` +
         '<div id="daily-review">' +
-        card('每日复盘', `<label>查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label><pre>${esc(one)}</pre>
-        <p>偏航 ${todayCases.length} 次 · ${esc(todayCases.map(c => c.obstacle + '，尝试：' + c.strategy).join('；') || '暂无偏航记录')}</p>
-        <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p>
+        card('每日复盘', `<label class="review-date">查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label>
+        <h3>任务记录</h3><ul class="daily-records">${dayRows.map(task => `<li><strong>${esc(task.title)}</strong><span>${task.completedAt ? new Date(task.completedAt).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) + ' · ' : ''}${esc(task.status)}</span></li>`).join('')}</ul>
+        <div class="review-note"><h3>偏航与恢复 · ${todayCases.length} 次</h3>
+        ${todayCases.length ? '<ul>' + todayCases.map(c=>'<li>' + esc(c.obstacle + ' · 尝试 ' + c.strategy) + '</li>').join('') + '</ul>' : '<p>暂无偏航记录</p>'}
+        <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p></div>
         <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note">${esc(row?.note)}</textarea></label>
-        <div class="controls"><button class="primary">保存并制定明日计划</button>${btn('skipReview','今天跳过详细复盘')}${voice ? btn('voice','语音输入','v1-reflection') : ''}</div></form>
-        <p>${row ? row.skipped ? '已跳过详细复盘' : '复盘已保存' : ''}</p>`) +
+        <div class="controls"><button class="primary">保存复盘</button>${btn('skipReview','跳过详细复盘')}${voice ? btn('voice','语音输入','v1-reflection') : ''}</div></form>
+        ${row ? '<p class="subtle">' + (row.skipped ? '已跳过详细复盘' : '复盘已保存') + '</p>' : ''}`) +
         '</div><div id="tomorrow-plan">' +
         card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow"><p class="subtle">最多三项，次日起床或上午提醒会附上。也可以在复盘里分行写「明天：任务」，再提取。</p>
         ${btn('extract','从复盘提取明日重点')}${[0,1,2].map(i => `<fieldset><legend>重点 ${i+1}</legend>
@@ -143,7 +168,7 @@
         card('每周复盘 · 最近七天', `<p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
         <p>起床时间 ${esc(stamp(report.wakeTimes))}</p><p>上床时间 ${esc(stamp(report.bedTimes))}</p>
         <p>偏航记录 ${report.cases.length} · 确认回归 ${report.returns}</p>
-        ${report.stats.map(s => `<p>${esc(V.data[s.id].title)} · 普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</p>`).join('')}
+        <h3>任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><strong>${esc(V.title(v,s.id))}</strong><span>普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
         <h3>代表性案例</h3>${report.cases.slice(-4).map(e => `<p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}
         ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</p>`).join('') || '<p>暂无案例</p>'}
         <h3>已确认回归时尝试的策略</h3><p>${esc(report.strategies.join('；') || '暂无记录')}</p>
@@ -151,9 +176,11 @@
     }
     function libraryPage(v) {
       const current = V.chooseQuote(v, date());
-      return card('本周两句晨间鼓励', `<p>${esc(current?.lines.join(' ')) || '目前没有可用语料'}</p>${btn('quoteRotate','手动换一组')}
-        <form data-v1-form="quote">${input('theme','主题','','required maxlength="30"')}${input('a','第一句','','required maxlength="120"')}${input('b','第二句','','required maxlength="120"')}<button class="primary">添加自定义语录</button></form>`) +
-        card('晨间语录库', [...V.catalog.quotes,...v.customQuotes].map(q => `<div class="v1-line"><span><b>${esc(q.theme)}</b> ${esc(q.lines.join(' '))}</span>
+      return card('本周晨间语录', `<p class="subtle">每周一自动换一组，同一周随起床提醒发送这两句。收藏的语录会优先入选。</p>
+        ${current ? '<blockquote class="weekly-quote"><b>' + esc(current.theme) + '</b>' + current.lines.map(line=>'<p>' + esc(line) + '</p>').join('') + '</blockquote>' : '<p>目前没有可用语料</p>'}`) +
+        card('管理语录', `<details class="reminder-details"><summary>添加自定义语录</summary>
+        <form data-v1-form="quote">${input('theme','主题','','required maxlength="30"')}${input('a','第一句','','required maxlength="120"')}${input('b','第二句','','required maxlength="120"')}<button class="primary">添加语录</button></form></details>` +
+        [...V.catalog.quotes,...v.customQuotes].map(q => `<div class="v1-line quote-row"><div><b>${esc(q.theme)}</b>${q.lines.map(line=>'<p>' + esc(line) + '</p>').join('')}</div>
           <select aria-label="${esc(q.theme)}偏好" class="field" data-v1-quote="${esc(q.id)}">${[['','可用'],['favorite','收藏'],['dislike','不喜欢'],['hidden','隐藏']].map(([k,l])=>`<option value="${k}" ${(v.preferences[q.id]??'')===k?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''));
     }
     function ideasPage(v) {
@@ -197,19 +224,34 @@
     }
     function updateReminderStatuses(v) {
       for (const node of document.querySelectorAll('[data-reminder-status]')) {
-        node.textContent = window.PlanetDashboard.reminderStatus(v, date(), node.dataset.reminderStatus);
+        const id = node.dataset.reminderStatus;
+        const status = window.PlanetDashboard.reminderStatus(v, date(), id);
+        node.textContent = status;
+        const button = node.parentElement.querySelector('.reminder-open');
+        const label = status === '对话中' ? '继续对话' : '现在聊聊';
+        button.textContent = label;
+        button.setAttribute('aria-label', V.title(v,id) + ' · ' + label);
       }
     }
     function selectTab(next) { go(routes[next]); }
     function configureSchedule(data) {
       const v = vNow(), s = v.settings;
-      if (V.ids.some(id => !P.timeOk(data['time_'+id]))) return toast('请填写有效提醒时间');
-      for (const id of V.ids) {
+      const ids = V.reminderIds(v);
+      const newTitle = P.clean(data.new_title,60);
+      const error = ids.some(id => !P.timeOk(data['time_'+id])) ? '请填写有效提醒时间'
+        : ids.some(id => V.isCustom(v,id) && !P.clean(data['title_'+id],60)) ? '请填写自定义任务名称'
+        : (newTitle || data.new_time) && (!newTitle || !P.timeOk(data.new_time)) ? '新增任务时，请同时填写名称和提醒时间'
+        : '';
+      if (error) { toast(error); return false; }
+      for (const id of ids) {
         const time = data['time_'+id];
         const enabled = Boolean(data['enabled_'+id]);
-        s.times[id] = { time, enabled };
-        if (!enabled && v.active?.id === id) V.park(v,'主动跳过');
+        const setting = s.times[id];
+        if (setting.enabled && !enabled && v.active?.id === id) V.park(v,'主动跳过');
+        Object.assign(setting,{time,enabled});
+        if (V.isCustom(v,id)) setting.title = P.clean(data['title_'+id],60);
       }
+      if (newTitle) s.times['custom-'+P.uid()] = {title:newTitle,time:data.new_time,enabled:true,addedDay:date()};
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
@@ -259,7 +301,7 @@
         const scene = v.active?.id ?? 'all';
         const memories = v.settings.memory ? v.memory.filter(m=>m.scene===scene || m.scene==='all').slice(-4) : [];
         const response = await fetch('/api/v1/coach',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),
-          body:JSON.stringify({text, scene, status:v.active?.stage || '', style:getState().settings.style,
+          body:JSON.stringify({text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
             schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories})});
         const value = await response.json();
         if (!response.ok || typeof value.reply !== 'string') throw new Error();
@@ -286,7 +328,7 @@
         if (name === 'soundDemo') {
           if (!v.settings.sound) return toast('请先启用并保存奖励音效设置');
           return void armAudio().then(ready => {
-            if (ready) playSound({id:value,level:1},true);
+            if (ready) playSound();
             else toast('浏览器未能播放音效');
           }).catch(() => toast('浏览器未能播放音效'));
         }
@@ -295,7 +337,6 @@
           return void Notification.requestPermission().then(r=>toast(r==='granted'?'浏览器通知已授权':'当前未授权浏览器通知'));
         }
         if (name === 'open') {
-          if (value !== 'return') return;
           const opened = V.open(state,value);
           modelOptions=[];
           if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
@@ -304,7 +345,7 @@
         if (name === 'choice') {
           const [revision,index]=value.split('/');
           const r=V.choose(state,revision,Number(index));
-          if (r?.award) reward(r.award,armAudio());
+          if (r?.award) reward(r.award);
           modelOptions=[];
         }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
@@ -314,7 +355,6 @@
         if (name === 'agreeTime') V.agreeTime(v);
         if (name === 'timer') V.timerAction(v,value);
         if (name === 'skipReview') v.reviews[day] = {skipped:true};
-        if (name === 'quoteRotate') V.chooseQuote(v,date(),true);
         if (name === 'deleteMemory') v.memory=v.memory.filter(row=>row.id!==value);
         if (name === 'rememberCase') {
           const rec = v.events.find(row=>row.type==='detour' && row.at === Number(value));
@@ -348,7 +388,9 @@
       const v=vNow(),state=getState(),data=Object.fromEntries(new FormData(form));
       try {
         switch(form.dataset.v1Form) {
-          case 'schedule': configureSchedule(data); break;
+          case 'schedule':
+            if (configureSchedule(data) === false) return;
+            break;
           case 'settings': configureRewards(data); break;
           case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;

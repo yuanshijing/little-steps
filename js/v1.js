@@ -10,6 +10,13 @@
   const M = 60000;
   const intervals = { wake: 3, rise: 2, wash: 10, start: 5, switch: 5, returning: 5, bedtime: 5, unanswered: 15 };
   const star = { wake: '晨光星', am: '行动星', pm: '行动星', night: '行动星', bath: '效率星', sleep: '休憩星', return: '回归星' };
+  const customOptions = [
+    ['已经完成了', '收到，已经帮你记下这次完成。'],
+    ['正在做', '继续做手头这一步，我稍后再确认。'],
+    ['还没开始', '先准备好这件事要用的一样东西，就从这里开始。'],
+    ['晚一点提醒我', '你想过多少分钟再确认？'],
+    ['这次跳过', '这次先跳过，明天仍按你的设置提醒。'],
+  ];
   const phases = {
     wash: ['洗漱进行得怎么样？', [['已经洗漱完成', '来准备早餐吧。'], ['正在洗漱', '慢慢来，我稍后确认。'], ['还没开始', '先走到洗手间。']]],
     breakfast: ['早餐进行得怎么样？', [['已经吃了', '看一下今天的重点，准备开始。'], ['正在吃', '先安心吃完。'], ['还没吃', '先准备一份简单的早餐。'], ['今天不吃早餐', '好，我们直接看今日重点。']]],
@@ -45,17 +52,20 @@
     const offset = (new Date(day + 'T12:00:00').getDay() + 6) % 7;
     return P.shiftDate(day, -offset);
   }
+  const isCustom = (v, id) => typeof id === 'string' && id.startsWith('custom-') && Object.hasOwn(v.settings.times, id);
+  const reminderIds = v => [...ids, ...Object.keys(v.settings.times).filter(id => isCustom(v, id))];
+  const title = (v, id) => isCustom(v, id) ? v.settings.times[id].title : id === 'return' ? '偏航回归' : data[id]?.title;
   function chooseQuote(v, day, replace = false) {
     const week = monday(day);
     const pool = [...catalog.quotes, ...v.customQuotes].filter(q => !['hidden', 'dislike'].includes(v.preferences[q.id]));
     const previous = v.quoteByWeek[week];
+    if (!pool.length) { delete v.quoteByWeek[week]; return null; }
     const current = pool.find(q => q.id === previous);
     if (current && !replace) return current;
     let available = pool.filter(q => !v.usedQuotes.includes(q.id));
     if (!available.length) { v.usedQuotes = []; available = pool; }
     if (available.length > 1) available = available.filter(q => q.id !== previous);
     const selected = available.find(q => v.preferences[q.id] === 'favorite') ?? available[0];
-    if (!selected) { delete v.quoteByWeek[week]; return null; }
     v.quoteByWeek[week] = selected.id;
     v.usedQuotes.push(selected.id);
     return selected;
@@ -63,7 +73,7 @@
   function record(v, day, id) {
     const key = day + '/' + id;
     return v.records[key] ??= { key, day, id, status: '待执行',
-      planned: ids.includes(id) ? P.dueAt(day, v.settings.times[id].time) : null, history: [], points: 0 };
+      planned: v.settings.times[id] ? P.dueAt(day, v.settings.times[id].time) : null, history: [], points: 0 };
   }
   function event(v, type, now, payload = {}) {
     v.events.push({ type, at: now.getTime(), day: P.dateKey(now), ...payload });
@@ -80,7 +90,7 @@
   function open(state, id, now = new Date(), source = 'manual') {
     const v = init(state);
     const day = P.dateKey(now);
-    if (!ids.includes(id) && id !== 'return') return false;
+    if (!ids.includes(id) && !isCustom(v, id) && id !== 'return') return false;
     const item = record(v, day, id);
     if (source !== 'manual' && (item.status !== '待执行' || !v.settings.times[id]?.enabled)) return false;
     if (v.active?.id === id && v.active.day === day) return false;
@@ -115,7 +125,8 @@
     item.remindedAt = now.getTime();
     v.active = { id: item.id, key: item.key, day: item.day, stage: item.id === 'return' ? 'recovery' : 'initial',
       due: now.getTime() + v.settings.intervals.unanswered * M, attempts: 0, revision: P.uid() };
-    const intro = item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
+    const intro = isCustom(v, item.id) ? '我们来确认一下「' + title(v, item.id) + '」。现在做到哪一步了？'
+      : item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
     const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
     const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
     message(v, [intro, quote, list].filter(Boolean).join('\n\n'), 'coach', {source, at:now.getTime()});
@@ -135,7 +146,7 @@
   function options(v) {
     const a = v.active;
     if (!a) return [];
-    if (a.stage === 'initial') return data[a.id].options;
+    if (a.stage === 'initial') return isCustom(v, a.id) ? customOptions : data[a.id].options;
     if (a.stage === 'wait') return [['事情已经结束', '我们继续下一步。'], ['仍在进行', '重新约定时间。']];
     return phases[a.stage]?.[1] ?? [];
   }
@@ -226,7 +237,12 @@
     };
     switch (a.stage) {
       case 'initial':
-        if (a.id === 'wake') {
+        if (isCustom(v, a.id)) {
+          if (index === 0) { taskCompleted(v, item, now); park(v, '已完成'); }
+          else if (index === 1 || index === 2) f('initial', s.intervals.start);
+          else if (index === 3) defer('initial');
+          else park(v, '主动跳过');
+        } else if (a.id === 'wake') {
           if ([0, 4, 5].includes(index)) finishWake({ 0: 'wash', 4: 'breakfast', 5: 'done' }[index]);
           else { if (index === 2) item.backInBed = true; f('rise', s.intervals.wake); }
         } else if (work.includes(a.id)) {
@@ -424,7 +440,7 @@
       const next = v.queue.shift();
       changed = open(state, next.id, now, next.source) || changed;
     }
-    for (const id of ids) {
+    for (const id of reminderIds(v)) {
       const setting = v.settings.times[id];
       const due = P.dueAt(day, setting.time);
       if ((!quiet || ['wake', 'sleep'].includes(id)) && setting.enabled && time >= due && time < due + 30 * M && !v.queue.some(row => row.id === id && row.day === day)) {
@@ -465,25 +481,32 @@
     }
     return v.timers.findLast(row => row.key === v.active?.key) ?? null;
   }
-  function dailyText(v, day) {
-    const time = stamp => new Date(stamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    return ids.map(id => {
+  function dailyRows(v, day) {
+    return reminderIds(v).map(id => {
       const row = v.records[day + '/' + id];
+      if (isCustom(v, id) && !row && v.settings.times[id].addedDay > day) return null;
       const status = ['待执行', '待回复', '已提醒'].includes(row?.status) ? '未记录' : row?.status ?? '未记录';
-      return data[id].title + ' · ' + status + (row?.completedAt ? ' ' + time(row.completedAt) : '');
-    }).join('\n');
+      return {title:title(v,id),status,completedAt:row?.completedAt};
+    }).filter(Boolean);
+  }
+  function dailyText(v, day) {
+    const time = stamp => new Date(stamp).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+    return dailyRows(v, day).map(row => row.title + ' · ' + row.status + (row.completedAt ? ' ' + time(row.completedAt) : '')).join('\n');
   }
   function weekly(v, day) {
     const first = P.shiftDate(day, -6);
     const records = Object.values(v.records).filter(row => row.day >= first && row.day <= day);
-    const stats = ids.map(id => {
+    const stats = reminderIds(v).map(id => {
+      const added = v.settings.times[id].addedDay;
+      const period = !added || added <= first ? 7 : Array.from({length:7}, (_, index) => P.shiftDate(first,index)).filter(day => day >= added).length;
+      if (!period) return null;
       const entries = records.filter(row => row.id === id);
       const completed = entries.filter(row => row.completedAt).length;
       const skipped = entries.filter(row => row.status === '主动跳过').length;
       const incomplete = entries.filter(row => row.status === '未完成').length;
       return { id, completed, advanced: entries.filter(row => row.level === 2).length, skipped, incomplete,
-        missing: 7 - completed - skipped - incomplete, rate: completed + incomplete ? completed / (completed + incomplete) : null };
-    });
+        missing: period - completed - skipped - incomplete, rate: completed + incomplete ? completed / (completed + incomplete) : null };
+    }).filter(Boolean);
     const cases = v.events.filter(row => row.day >= first && row.day <= day && row.type === 'detour').slice(-12).map(row => ({
       ...row, outcome: records.find(record => record.key === row.key)?.backAt >= row.at ? '已确认回归' : '未确认回归',
     }));
@@ -557,6 +580,6 @@
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, record, message, open, options, choose, park,
-    tick, setFollow, agreeTime, elapsed, timerAction, dailyText, weekly, achievements, free, planText, catalog };
+  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, title, record, message, open, options, choose, park,
+    tick, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });
