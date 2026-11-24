@@ -1,0 +1,342 @@
+(() => {
+  'use strict';
+  const V = window.PlanetV1;
+  const P = window.Planet;
+  const C = window.PlanetCoach;
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const card = (title, html) => `<section class="surface v1-card"><h2 class="section-title">${esc(title)}</h2>${html}</section>`;
+  const btn = (action, label, value = '', primary = false) => `<button type="button" class="${primary ? 'primary' : 'secondary'} small" data-v1="${action}" data-value="${esc(value)}">${esc(label)}</button>`;
+  const input = (name, text, value = '', attrs = '') => `<label>${esc(text)}<input class="field" name="${name}" value="${esc(value)}" ${attrs}></label>`;
+  const when = (name, text, value) => input(name, text, value, 'type="time" required');
+  const number = (name, text, value, min = 1, max = 120) => input(name, text, value, `type="number" min="${min}" max="${max}" required`);
+  const values = { wake: '已醒未离床', rise: '坐起尚未站立', wash: '洗漱', start: '准备开始',
+    switch: '活动切换', returning: '偏航回归', bedtime: '睡前收尾', unanswered: '未回复' };
+  const levelName = { basic: '完成积分', advanced: '进阶总积分', wakeLimit: '起床宽限分钟', startLimit: '启动宽限分钟',
+    focusMin: '专注持续分钟', sleepLimit: '上床宽限分钟', returnLimit: '回归宽限分钟', returnMin: '回归持续分钟' };
+  const readDuration = values => values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) + ' 分钟' : '暂无记录';
+  const voice = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function mount({ state: getState, save, render, go, toast }) {
+    const vNow = () => V.init(getState());
+    const date = () => P.dateKey();
+    const api = location.protocol !== 'file:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
+    let tab = 'chat';
+    let day = date();
+    let lastReview = '';
+    let modelOptions = [];
+    let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
+    let audio;
+    const view = () => document.getElementById('view');
+    function armAudio() {
+      if (!vNow().settings.sound || !(window.AudioContext || window.webkitAudioContext)) return;
+      audio ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') void audio.resume().catch(() => {});
+    }
+    function reward(award) {
+      if (!award) return;
+      const el = document.createElement('div');
+      el.className = 'v1-celebration ' + (award.id === 'sleep' ? 'quiet' : award.level === 2 ? 'bright' : '');
+      el.setAttribute('role', 'status');
+      el.textContent = award.text + '　⭐ +' + award.bonus + ' · ' + award.star;
+      document.body.append(el);
+      setTimeout(() => el.remove(), 3700);
+      if (audio?.state !== 'running' || !vNow().settings.sound) return;
+      const bedtime = award.id === 'sleep';
+      const notes = bedtime ? [392, 523] : award.level === 2 ? [523, 659, 784, 1047] : [523, 659, 784];
+      notes.forEach((frequency, index) => {
+        const start = audio.currentTime + index * 0.09;
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.001, start);
+        gain.gain.exponentialRampToValueAtTime(bedtime ? 0.018 : 0.055, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.17);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(start); osc.stop(start + 0.18);
+      });
+    }
+    function tabs() {
+      return `<nav class="controls" aria-label="小星功能">${[['chat','主动对话'], ['schedule','提醒设置'], ['review','日周复盘'],
+        ['library','晨间语录'], ['memory','记忆与灵感']].map(([id, label]) => btn('tab', label, id, tab === id)).join('')}</nav>`;
+    }
+    function chatPage(v) {
+      const a = v.active;
+      const controls = a ? V.options(v).map(([label], i) => btn('choice', label, a.revision + '/' + i)).join('') : '';
+      const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : '';
+      const custom = a?.stage === 'wait' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
+      const timer = a?.id === 'bath' || v.timer ? timerView(v) : '';
+      return card('小星 · 主动陪伴', `<p class="subtle">${esc(modelStatus)}${getState().settings.pausedUntil > Date.now() ? ' · 监督已暂停' : ''}</p>
+        <div class="controls">${btn('open','把我拉回来','return',true)}${btn('pause','暂停一小时')}${btn('resume','恢复监督')}${btn('tab','记个灵感','memory')}</div>
+        <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
+          `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}">${esc(row.text)}</div>`).join('') || '<p class="subtle">到点小星会来询问。也可以从下方选择一个环节开始。</p>'}</div>
+        ${a ? `<p><b>${esc(V.data[a.id]?.title ?? '偏航回归')}</b> <span class="subtle">${esc(due)}</span></p>
+        ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
+        <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
+        ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}${btn('remindOff','关闭该环节提醒')}</div>${custom}` : ''}
+        ${modelOptions.length ? '<div class="controls">' + modelOptions.map(text => btn('modelOption', text, text)).join('') + '</div>' : ''}
+        <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
+        <div class="controls"><button class="primary">发给小星</button>${voice ? btn('voice','语音输入','v1-input') : ''}
+        ${api ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
+        ${api ? '<p class="subtle">使用模型按钮会发送本条消息、今日重点、近期对话和你允许检索的相关记忆。</p>' : ''}
+        ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
+        ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
+        card('今日八项安排', V.ids.map(id => {
+          const setting = v.settings.times[id], row = v.records[date() + '/' + id];
+          return `<div class="v1-line"><span>${esc(setting.time)} · ${esc(V.data[id].title)} <small>${esc(row?.status ?? (setting.enabled ? '待执行' : '提醒已关'))}</small></span>${btn('open','进入',id)}</div>`;
+        }).join(''));
+    }
+    function timerView(v) {
+      return card('洗澡计时', v.timer ? `<p id="v1-timer" class="timer">00:00</p><p id="v1-timer-stage"></p>
+      <div class="controls">${btn('timer',v.timer.runningSince == null ? '继续' : '暂停',v.timer.runningSince == null ? 'resume' : 'pause')}${btn('timer','结束并记录用时','end',true)}</div>` :
+        `<form data-v1-form="timer"><label>计时模式<select class="field" name="mode"><option value="bath">仅洗澡 · 20 分钟</option><option value="combined">洗澡 30 分钟＋整理 10 分钟</option><option value="custom">自定义</option></select></label>
+        ${number('custom','自定义分钟',20,1,180)}<button class="primary">开始计时</button></form>`);
+    }
+    function schedulePage(v) {
+      return card('八项独立定时提醒', `<form data-v1-form="settings">${V.ids.map(id => `<div class="v1-line">
+        <label><input type="checkbox" name="enabled_${id}" ${v.settings.times[id].enabled ? 'checked' : ''}> ${esc(V.data[id].title)}</label>
+        ${when('time_'+id,'提醒时间',v.settings.times[id].time)}</div>`).join('')}
+        <h3>跟进间隔（分钟）</h3><div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label,v.settings.intervals[key])).join('')}
+        ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div>
+        <h3>奖励条件</h3><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div>
+        <h3>每周复盘</h3><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
+          `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div>
+        <label><input type="checkbox" name="sound" ${v.settings.sound ? 'checked' : ''}> 播放奖励音效</label>
+        <div class="controls"><button class="primary">保存设置</button>${btn('notify','授权浏览器通知')}</div>
+        <p class="notice">安装或打开网页时可在对话区看到提醒。关闭网页之后，当前公开站没有后台推送服务。浏览器可能限制后台标签页的定时执行。</p></form>`) +
+        card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
+    }
+    function reviewPage(v) {
+      const row = v.reviews[day];
+      const report = V.weekly(v, day);
+      const one = V.dailyText(v, day);
+      const todayCases = v.events.filter(event => event.day === day && event.type === 'detour');
+      const tomorrow = P.shiftDate(date(), 1);
+      const plan = getState().plans[tomorrow]?.items ?? [];
+      const stamp = xs => xs.map(n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0')).join('、') || '暂无记录';
+      return card('每日复盘', `<label>查看日期<input class="field" type="date" id="v1-review-date" value="${day}"></label><pre>${esc(one)}</pre>
+        <p>偏航 ${todayCases.length} 次 · ${esc(todayCases.map(c => c.obstacle + '，尝试：' + c.strategy).join('；') || '暂无偏航记录')}</p>
+        <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p>
+        <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note">${esc(row?.note)}</textarea></label>
+        <div class="controls"><button class="primary">保存并制定明日计划</button>${btn('skipReview','今天跳过详细复盘')}${voice ? btn('voice','语音输入','v1-reflection') : ''}</div></form>
+        <p>${row ? row.skipped ? '已跳过详细复盘' : '复盘已保存' : ''}</p>`) +
+        card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow"><p class="subtle">最多三项，次日起床或上午提醒会附上。也可以在复盘里分行写「明天：任务」，再提取。</p>
+        ${btn('extract','从复盘提取明日重点')}${[0,1,2].map(i => `<fieldset><legend>重点 ${i+1}</legend>
+          ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${when('when'+i,'时间',plan[i]?.when ?? '09:00')}
+          ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}</fieldset>`).join('')}<button class="primary">确认明日清单</button></form>`) +
+        card('每周复盘 · 最近七天', `<p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
+        <p>起床时间 ${esc(stamp(report.wakeTimes))}</p><p>上床时间 ${esc(stamp(report.bedTimes))}</p>
+        <p>偏航记录 ${report.cases.length} · 确认回归 ${report.returns}</p>
+        ${report.stats.map(s => `<p>${esc(V.data[s.id].title)} · 普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</p>`).join('')}
+        <h3>代表性案例</h3>${report.cases.slice(-4).map(e => `<p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}
+        ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</p>`).join('') || '<p>暂无案例</p>'}
+        <h3>已确认回归时尝试的策略</h3><p>${esc(report.strategies.join('；') || '暂无记录')}</p>
+        <h3>下一周可试</h3><p>${esc(report.suggested.join('；') || '先记录一次真实的中断和恢复过程。')}</p>`) +
+        card('我的星空收藏', `<p>${Object.entries(v.rewardHistory.reduce((out,r) => (out[r.star]=(out[r.star]??0)+(r.level===1?1:0),out), {})).map(([name,n])=>esc(name)+' '+n+' 颗').join(' · ') || '还没有新版本的奖励记录'}</p>
+        <p>${Object.keys(v.achievements).map(esc).join(' · ') || '成就按累计次数解锁'}</p>`);
+    }
+    function libraryPage(v) {
+      const current = V.chooseQuote(v, date());
+      return card('本周两句晨间鼓励', `<p>${esc(current?.lines.join(' ')) || '目前没有可用语料'}</p>${btn('quoteRotate','手动换一组')}
+        <form data-v1-form="quote">${input('theme','主题','','required maxlength="30"')}${input('a','第一句','','required maxlength="120"')}${input('b','第二句','','required maxlength="120"')}<button class="primary">添加自定义语录</button></form>`) +
+        card('晨间语录库', [...V.catalog.quotes,...v.customQuotes].map(q => `<div class="v1-line"><span><b>${esc(q.theme)}</b> ${esc(q.lines.join(' '))}</span>
+          <select aria-label="${esc(q.theme)}偏好" class="field" data-v1-quote="${esc(q.id)}">${[['','可用'],['favorite','收藏'],['dislike','不喜欢'],['hidden','隐藏']].map(([k,l])=>`<option value="${k}" ${(v.preferences[q.id]??'')===k?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''));
+    }
+    function memoryPage(v) {
+      return card('灵感暂存', `<form data-v1-form="idea"><label>记下现在不必展开的事<textarea class="field" required id="v1-idea" name="text" maxlength="500"></textarea></label>
+        <div class="controls"><button class="primary">保存并回到原任务</button>${voice ? btn('voice','语音记录','v1-idea') : ''}</div></form>
+        ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`) +
+        card('长期记忆', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
+        <p class="subtle">确认后才保存。你可以修改类别、文字或删除。仅在明确调用模型时提供相关条目。</p>
+        ${[...v.memory,{id:'',text:'',source:'用户自述',scene:'all'}].map(row=>`<form data-v1-form="memory" class="v1-memory-row">
+          <input type="hidden" name="id" value="${esc(row.id)}">${input('text',row.id?'编辑记忆':'添加记忆',row.text,'required maxlength="320"')}
+          <div class="cols"><label>来源<select class="field" name="source">${['已确认事实','用户自述','待验证假设'].map(x=>`<option ${row.source===x?'selected':''}>${x}</option>`).join('')}</select></label>
+          <label>相关环节<select class="field" name="scene"><option value="all">通用</option>${V.ids.map(id=>`<option value="${id}" ${row.scene===id?'selected':''}>${esc(V.data[id].title)}</option>`).join('')}</select></label></div>
+          <div class="controls"><button class="secondary">${row.id?'保存修改':'确认添加'}</button>${row.id?btn('deleteMemory','删除',row.id):''}</div></form>`).join('')}`);
+    }
+    function screen() {
+      const v = vNow();
+      return tabs() + ({chat:chatPage,schedule:schedulePage,review:reviewPage,library:libraryPage,memory:memoryPage}[tab])(v);
+    }
+    function paint() {
+      const draft = document.getElementById('v1-input')?.value;
+      render();
+      const chat = document.getElementById('v1-chat');
+      if (chat) chat.scrollTop = chat.scrollHeight;
+      const field = document.getElementById('v1-input');
+      if (field && draft) field.value = draft;
+      clock();
+      save();
+    }
+    function clock() {
+      const t = vNow().timer;
+      const el = document.getElementById('v1-timer');
+      if (!t || !el) return;
+      const elapsed = V.elapsed(t, Date.now());
+      const remaining = Math.ceil(Math.max(0,t.target - elapsed)/1000);
+      el.textContent = String(Math.floor(remaining/60)).padStart(2,'0') + ':' + String(remaining%60).padStart(2,'0');
+      document.getElementById('v1-timer-stage').textContent = t.runningSince == null ? '已暂停'
+        : elapsed >= t.target ? '已到目标时间 · 仍在记录实际用时'
+        : t.stages.length === 2 && elapsed >= 30*60000 ? '第二阶段 · 洗衣及整理' : '第一阶段 · 洗澡';
+    }
+    function selectTab(next) { tab = next; go('v1'); paint(); }
+    function configure(data) {
+      const v = vNow(), s = v.settings;
+      if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
+      for (const id of V.ids) {
+        const time = data['time_'+id];
+        const enabled = Boolean(data['enabled_'+id]);
+        if (!P.timeOk(time)) return toast('请填写有效提醒时间');
+        s.times[id] = { time, enabled };
+        if (!enabled && v.active?.id === id) V.park(v,'主动跳过');
+      }
+      for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
+      for (const key of Object.keys(levelName)) s[key] = P.bounded(data[key],1,1000,s[key]);
+      s.weekDay = P.bounded(data.weekDay,0,6,0);
+      if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
+      if (P.timeOk(data.wrap_am) && P.timeOk(data.wrap_pm)) s.wrapTimes = {am:data.wrap_am,pm:data.wrap_pm};
+      s.sound = Boolean(data.sound);
+      toast('提醒设置已保存');
+    }
+    function recognize(id) {
+      const el = document.getElementById(id);
+      if (!voice || !el) return;
+      const speech = new voice();
+      speech.lang = 'zh-CN';
+      speech.onresult = e => { el.value = (el.value + ' ' + e.results[0][0].transcript).trim(); };
+      speech.onerror = () => toast('未收到语音，请检查麦克风权限或改用文字');
+      speech.start();
+    }
+    async function checkConnection(deep = false) {
+      if (!api) return;
+      try {
+        const response = await fetch(deep ? '/api/v1/test' : '/api/v1/config', deep ? {
+          method:'POST', headers:{'Content-Type':'application/json'}, body:'{}', signal:AbortSignal.timeout(22000),
+        } : undefined);
+        const result = await response.json();
+        if (!response.ok) throw new Error();
+        modelStatus = result.enabled ? (deep?'模型测试成功':'模型已配置，等待你选择调用') +
+          ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token · 估算 $' + (result.cost ?? 0) :
+          '基础教练模式 · 尚未配置模型';
+      } catch { modelStatus = '基础教练模式 · 模型连接不可用'; }
+      if (document.querySelector('[data-page="v1"].active')) paint();
+    }
+    async function reply(text, useModel) {
+      const v = vNow();
+      const result = V.free(getState(), text);
+      if (!result) return;
+      modelOptions = [];
+      const fallback = v.messages.at(-1);
+      const current = v.active?.revision;
+      if (!api || !useModel || result !== 'fallback') return;
+      try {
+        const scene = v.active?.id ?? 'all';
+        const memories = v.settings.memory ? v.memory.filter(m=>m.scene===scene || m.scene==='all').slice(-4) : [];
+        const response = await fetch('/api/v1/coach',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),
+          body:JSON.stringify({text, scene, status:v.active?.stage || '', style:getState().settings.style,
+            schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories})});
+        const value = await response.json();
+        if (!response.ok || typeof value.reply !== 'string') throw new Error();
+        if (vNow() !== v || v.active?.revision !== current) return;
+        fallback.text = value.reply;
+        modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
+      } catch { fallback.text = '模型暂不可用，已切回基础教练。\n' + fallback.text; }
+      finally { if (document.querySelector('[data-page="v1"].active')) paint(); }
+    }
+    document.addEventListener('click', e => {
+      const b = e.target.closest('[data-v1]');
+      if (!b) return;
+      const {v1: name,value} = b.dataset, v = vNow(), state = getState();
+      try {
+        if (name === 'tab') return selectTab(value);
+        if (name === 'voice') return recognize(value);
+        if (name === 'connection') return void checkConnection(true);
+        if (name === 'notify') {
+          if (!window.Notification || !isSecureContext) return toast('浏览器未提供通知权限');
+          return void Notification.requestPermission().then(r=>toast(r==='granted'?'浏览器通知已授权':'当前未授权浏览器通知'));
+        }
+        if (name === 'open') { V.open(state,value); modelOptions=[]; }
+        if (name === 'choice') { armAudio(); const [revision,index]=value.split('/'); const r=V.choose(state,revision,Number(index)); reward(r?.award); modelOptions=[]; }
+        if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
+        if (name === 'remindOff' && v.settings.times[v.active?.id]) { v.settings.times[v.active.id].enabled=false; V.park(v,'主动跳过'); }
+        if (name === 'pause') { state.settings.pausedUntil = Date.now()+3600000; toast('已暂停监督一小时'); }
+        if (name === 'resume') { state.settings.pausedUntil = 0; toast('已恢复监督'); }
+        if (name === 'agreeTime') V.agreeTime(v);
+        if (name === 'timer') V.timerAction(v,value);
+        if (name === 'skipReview') v.reviews[day] = {skipped:true};
+        if (name === 'quoteRotate') V.chooseQuote(v,date(),true);
+        if (name === 'deleteMemory') v.memory=v.memory.filter(row=>row.id!==value);
+        if (name === 'rememberCase') {
+          const rec = v.events.find(row=>row.type==='detour' && row.at === Number(value));
+          if (rec && v.settings.memory && !v.memory.some(row=>row.id==='case-'+value)) {
+            v.memory.push({id:'case-'+value,source:'已确认事实',scene:v.records[rec.key]?.id ?? 'all',
+              text:P.clean('当「'+rec.obstacle+'」发生时，使用「'+rec.strategy+'」后确认回归。',320)});
+            toast('回归案例已存入记忆');
+          }
+        }
+        if (name === 'removeIdea') v.ideas=v.ideas.filter(row=>row.id!==value);
+        if (name === 'modelOption') void reply(value,true);
+        if (name === 'extract') {
+          const form=document.querySelector('[data-v1-form="tomorrow"]');
+          const draft=C.draft(document.getElementById('v1-reflection')?.value || lastReview);
+          draft.items.forEach((row,i)=>{form.elements['title'+i].value ||= row.title; form.elements['step'+i].value ||= row.firstStep;});
+          return toast(draft.items.length?'已提取，可以继续修改':'可以分行写「明天：任务」');
+        }
+        paint();
+      } catch (error) { toast(error.message); }
+    });
+    document.addEventListener('change', e => {
+      const el=e.target,v=vNow();
+      if (el.id==='v1-review-date' && el.value) {day=el.value; paint();}
+      if (el.id==='v1-memory-on') {v.settings.memory=el.checked;save();}
+      if (el.matches('[data-v1-quote]')) {v.preferences[el.dataset.v1Quote]=el.value;paint();}
+    });
+    document.addEventListener('submit',e=>{
+      const form=e.target;
+      if (!form.dataset.v1Form) return;
+      e.preventDefault();
+      const v=vNow(),state=getState(),data=Object.fromEntries(new FormData(form));
+      try {
+        switch(form.dataset.v1Form) {
+          case 'settings': configure(data); break;
+          case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
+          case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
+          case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
+          case 'daily': lastReview=P.clean(data.note,1500);v.reviews[day]={note:lastReview,summary:V.dailyText(v,day)};V.achievements(state,new Date());toast('复盘已保存');break;
+          case 'tomorrow': {
+            const rows=[0,1,2].map(i=>({title:data['title'+i],when:data['when'+i],firstStep:data['step'+i]})).filter(row=>row.title.trim());
+            P.savePlan(state,P.shiftDate(date(),1),rows,lastReview);
+            toast('明日任务清单已确认'); break;
+          }
+          case 'quote': if(data.theme.trim()&&data.a.trim()&&data.b.trim()) v.customQuotes.push({id:P.uid(),theme:data.theme.trim(),lines:[data.a.trim(),data.b.trim()]});break;
+          case 'idea': if(data.text.trim()){v.ideas.push({id:P.uid(),text:P.clean(data.text,500),at:Date.now()});V.message(v,'灵感已保存。我们可以回到原来那件事，先打开需要用的材料。');selectTab('chat');}break;
+          case 'memory': {
+            if (!data.text.trim()) break;
+            const previous=v.memory.find(r=>r.id===data.id);
+            const item={id:previous?.id??P.uid(),text:P.clean(data.text,320),source:data.source,scene:data.scene};
+            if(previous)Object.assign(previous,item);else v.memory.push(item);
+            break;
+          }
+        }
+        paint();
+      } catch(error){toast(error.message);}
+    });
+    if (api) void checkConnection();
+    return {
+      screen, selectTab, clock,
+      tick: now => {
+        const v = vNow();
+        const count = v.messages.length;
+        if (!V.tick(getState(), now)) return;
+        save();
+        if (document.querySelector('[data-page="v1"].active')) {
+          if (tab === 'chat') paint();
+          else if (v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
+        } else if (v.messages.length > count) toast('小星有一条新提醒，可到主动对话查看');
+        if (v.messages.length > count && window.Notification?.permission === 'granted') {
+          try { new Notification('小步星球 · 小星', { body: '打开对话查看你的日程提醒。' }); } catch { /* In-page message persists. */ }
+        }
+      },
+    };
+  }
+  window.PlanetV1View = { mount };
+})();
