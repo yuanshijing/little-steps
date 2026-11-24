@@ -9,7 +9,7 @@
   const input = (name, text, value = '', attrs = '') => `<label>${esc(text)}<input class="field" name="${name}" value="${esc(value)}" ${attrs}></label>`;
   const when = (name, text, value) => input(name, text, value, 'type="time" required');
   const number = (name, text, value, min = 1, max = 120) => input(name, text, value, `type="number" min="${min}" max="${max}" required`);
-  const messageSources = {schedule:'定时提醒',transition:'环节衔接',manual:'主动开启',review:'复盘邀请'};
+  const messageSources = {schedule:'定时提醒',queued:'开始处理',transition:'环节衔接',manual:'主动开启',review:'复盘邀请'};
   const values = { wake: '已醒未离床', rise: '坐起尚未站立', wash: '洗漱', start: '准备开始',
     switch: '活动切换', returning: '偏航回归', bedtime: '睡前收尾', unanswered: '未回复' };
   const levelName = { basic: '完成积分', advanced: '进阶总积分', wakeLimit: '起床宽限分钟', startLimit: '启动宽限分钟',
@@ -29,6 +29,7 @@
     let modelEnabled = false;
     let reviewPending = '';
     let draftSequence = 0;
+    let dragSort;
     let audio;
     async function armAudio() {
       const Context = window.AudioContext || window.webkitAudioContext;
@@ -95,6 +96,9 @@
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
+        ${v.queue.filter(row=>row.day===date() && v.records[row.day+'/'+row.id]?.notifiedAt != null).map(row=>
+          `<div class="review-prompt"><strong>${esc(V.title(v,row.id))} · 待处理</strong>
+          ${btn('open','处理这条提醒',row.id)}</div>`).join('')}
         ${reviewPrompts.map(([key,row])=>`<div class="review-prompt"><strong>${row.kind==='daily'?'睡前复盘':'每周复盘'}</strong>
         <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview','开始复盘',key,true) : ''}
         ${row.pending ? btn('dismissReview','暂时跳过',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
@@ -125,6 +129,7 @@
       const state = getState();
       const removed = V.allReminderIds(v).filter(id => v.settings.times[id].removed);
       return card('固定提醒和自定义任务', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。你也可以点「现在聊聊」提前进入对应对话。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
+        ${state.settings.quiet ? `<p class="subtle">免打扰时段 ${esc(state.settings.quietStart)}–${esc(state.settings.quietEnd)}。需要在这段时间提醒，可单独勾选对应任务。</p>` : ''}
         <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
         <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend>
         <div id="reminder-drafts"></div>${btn('addReminder','＋ 添加一项')}<p class="subtle">可连续添加多项。最后点「保存提醒」统一生效。</p></fieldset>
@@ -146,7 +151,11 @@
         card('教练偏好与数据', `<div class="controls">
           <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格、免打扰与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
-        card('模型连接', `<p>${esc(modelStatus)}</p>${api ? btn('connection','测试已配置模型') : '<p>公开静态站使用基础教练。本机版可从后端配置 OpenAI 兼容服务。</p>'}`);
+        card('模型连接', `<p>${esc(modelStatus)}</p>${api ? (modelEnabled ? btn('connection','测试已配置模型') : '') +
+          `<form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
+          <input class="field" type="password" name="key" placeholder="sk-…" required maxlength="223" autocomplete="off" spellcheck="false"></label>
+          <p class="subtle">测试只发送一条示例问题。密钥保存在本机服务的内存中，关闭服务后需要重新填写。</p>
+          <button class="primary">连接并测试 DeepSeek</button></form>` : '<p>公开静态站使用基础教练。本机版可连接 DeepSeek。</p>'}`);
     }
     function reviewInput(v,kind,reviewDay,note) {
       const stats = kind === 'weekly' ? V.weekly(v,reviewDay) : null;
@@ -305,7 +314,7 @@
     function updateReminderStatuses(v) {
       for (const node of document.querySelectorAll('[data-reminder-status]')) {
         const id = node.dataset.reminderStatus;
-        const status = window.PlanetDashboard.reminderStatus(v, date(), id);
+        const status = window.PlanetDashboard.reminderStatus(v, date(), id, getState().settings);
         node.textContent = status;
         const button = node.parentElement.querySelector('.reminder-open');
         const label = status === '对话中' ? '继续对话' : '现在聊聊';
@@ -314,9 +323,10 @@
       }
     }
     function selectTab(next) { go(routes[next]); }
-    function configureSchedule(data) {
+    function configureSchedule(data, form) {
       const v = vNow(), s = v.settings;
       const ids = V.reminderIds(v).filter(id => !data['remove_'+id]);
+      const rescheduled = new Set(ids.filter(id=>s.times[id].time!==data['time_'+id]));
       const drafts = Object.keys(data).filter(key=>/^new_title_\d+$/.test(key)).map(key=>({
         title:P.clean(data[key],60),time:data[key.replace('title','time')],
       }));
@@ -330,7 +340,7 @@
         const enabled = Boolean(data['enabled_'+id]);
         const setting = s.times[id];
         if (setting.enabled && !enabled && v.active?.id === id) V.park(v,'主动跳过');
-        Object.assign(setting,{time,enabled});
+        Object.assign(setting,{time,enabled,allowQuiet:Boolean(data['quiet_'+id])});
         if (V.isCustom(v,id)) setting.title = P.clean(data['title_'+id],60);
       }
       for (const id of V.allReminderIds(v)) {
@@ -341,8 +351,16 @@
           Object.assign(s.times[id],{removed:false,enabled:true});
         }
       }
-      v.queue = v.queue.filter(row=>s.times[row.id]?.enabled);
+      v.queue = v.queue.filter(row=>s.times[row.id]?.enabled && (row.source!=='schedule' || !rescheduled.has(row.id)));
+      for (const id of rescheduled) {
+        const record = v.records[date()+'/'+id];
+        if (record?.status === '待执行') {
+          delete record.notifiedAt;
+          record.planned = P.dueAt(date(),s.times[id].time);
+        }
+      }
       for (const row of drafts) s.times['custom-'+P.uid()] = {...row,enabled:true,addedDay:date()};
+      s.reminderOrder = Array.from(form.querySelectorAll('[data-saved-reminder]'),row=>row.dataset.savedReminder);
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
@@ -368,11 +386,47 @@
       field.name = 'remove_'+row.dataset.savedReminder;
       field.value = '1';
       button.form.append(field);
-      const group = row.parentElement;
       row.remove();
-      if (!group.querySelector('[data-saved-reminder]')) group.remove();
       toast('已移出列表，保存提醒后生效');
     }
+    function moveReminderRow(button,direction) {
+      const row = button.closest('[data-saved-reminder]');
+      const neighbor = direction === 'up' ? row.previousElementSibling : row.nextElementSibling;
+      if (!neighbor) return;
+      if (direction === 'up') neighbor.before(row);
+      else neighbor.after(row);
+      button.focus({preventScroll:true});
+      toast('顺序已调整，保存提醒后生效');
+    }
+    document.addEventListener('pointerdown',event=>{
+      const grip = event.target.closest('.reminder-grip');
+      if (!grip || !event.isPrimary || event.button !== 0) return;
+      const row = grip.closest('[data-saved-reminder]');
+      const list = row.parentElement;
+      list.setPointerCapture(event.pointerId);
+      dragSort = {row,list,pointerId:event.pointerId,startY:event.clientY,moved:false};
+      row.classList.add('is-dragging');
+      event.preventDefault();
+    });
+    document.addEventListener('pointermove',event=>{
+      if (dragSort?.pointerId !== event.pointerId || Math.abs(event.clientY-dragSort.startY) < 5 && !dragSort.moved) return;
+      const {row,list} = dragSort;
+      const target = document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-saved-reminder]');
+      if (!target || target === row || target.parentElement !== list) return;
+      const bounds = target.getBoundingClientRect();
+      if (event.clientY < (bounds.top+bounds.bottom)/2) target.before(row);
+      else target.after(row);
+      dragSort.moved = true;
+    });
+    const finishDrag = event=>{
+      if (dragSort?.pointerId !== event.pointerId) return;
+      dragSort.row.classList.remove('is-dragging');
+      if (dragSort.moved) toast('顺序已调整，保存提醒后生效');
+      dragSort = undefined;
+    };
+    document.addEventListener('pointerup',finishDrag);
+    document.addEventListener('pointercancel',finishDrag);
+    document.addEventListener('lostpointercapture',finishDrag);
     function configureRewards(data) {
       const s = vNow().settings;
       if (Number(data.advanced) < Number(data.basic)) return toast('进阶总积分至少等于完成积分');
@@ -399,13 +453,38 @@
         if (!response.ok) throw new Error();
         modelEnabled = result.enabled === true;
         modelStatus = modelEnabled ? (deep?'模型测试成功':'模型已配置，等待你选择调用') +
-          ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token · 估算 $' + (result.cost ?? 0) :
+          (result.model ? ' · ' + result.model : '') + ' · 今日 ' + (result.calls ?? 0) + ' 次 · 本月 ' + (result.monthTokens ?? 0) + ' Token' :
           '基础教练模式 · 尚未配置模型';
       } catch {
         if (!deep) modelEnabled = false;
         modelStatus = '基础教练模式 · 模型连接不可用';
       }
       if (['v1','v1settings','v1review'].includes(page())) paint();
+    }
+    async function connectDeepSeek(form,key) {
+      if (!api) return;
+      const button = form.querySelector('button');
+      button.disabled = true;
+      button.textContent = '正在测试 DeepSeek…';
+      form.reset();
+      try {
+        const response = await fetch('/api/v1/deepseek/connect',{method:'POST',headers:{'Content-Type':'application/json'},
+          signal:AbortSignal.timeout(24000),body:JSON.stringify({key})});
+        const result = await response.json();
+        if (!response.ok || !result.enabled) {
+          toast(result.error || '未能连接 DeepSeek');
+          return;
+        }
+        modelEnabled = true;
+        modelStatus = 'DeepSeek 已连接并测试成功 · ' + result.model;
+        if (['v1','v1settings','v1review'].includes(page())) paint();
+        toast('DeepSeek 连接成功');
+      } catch {
+        toast('未能完成连接，请检查本机服务和网络后重试');
+      } finally {
+        button.disabled = false;
+        button.textContent = '连接并测试 DeepSeek';
+      }
     }
     async function reply(text, useModel) {
       const v = vNow();
@@ -437,6 +516,7 @@
         if (name === 'tab') return selectTab(value);
         if (name === 'addReminder') return addReminderDraft();
         if (name === 'removeReminder') return removeReminderRow(b);
+        if (name === 'moveReminder') return moveReminderRow(b,value);
         if (name === 'generateReview') return void generateReview(value);
         if (name === 'openReview') {
           const prompt = v.reviewPrompts?.[value];
@@ -529,8 +609,9 @@
       const v=vNow(),state=getState(),data=Object.fromEntries(new FormData(form));
       try {
         switch(form.dataset.v1Form) {
+          case 'deepseek': return void connectDeepSeek(form,data.key);
           case 'schedule':
-            if (configureSchedule(data) === false) return;
+            if (configureSchedule(data,form) === false) return;
             break;
           case 'settings': configureRewards(data); break;
           case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;

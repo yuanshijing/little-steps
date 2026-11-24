@@ -524,6 +524,7 @@
   save();
   setInterval(loop, 1000);
   window.addEventListener('focus', loop);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loop(); });
   if (['localhost', '127.0.0.1'].includes(location.hostname)) {
     fetch('/api/capabilities').then(response => response.ok ? response.json() : null).then(capabilities => {
       modelAvailable = capabilities?.model === true;

@@ -55,6 +55,17 @@
   const isCustom = (v, id) => typeof id === 'string' && id.startsWith('custom-') && Object.hasOwn(v.settings.times, id);
   const allReminderIds = v => [...ids, ...Object.keys(v.settings.times).filter(id => isCustom(v, id))];
   const reminderIds = v => allReminderIds(v).filter(id => !v.settings.times[id].removed);
+  function displayReminderIds(v) {
+    const ids = reminderIds(v);
+    const order = Array.isArray(v.settings.reminderOrder) ? v.settings.reminderOrder : [];
+    return [...new Set([...order.filter(id=>ids.includes(id)),...ids])];
+  }
+  function quietAt(settings,time) {
+    return settings.quiet && (settings.quietStart <= settings.quietEnd
+      ? time >= settings.quietStart && time < settings.quietEnd
+      : time >= settings.quietStart || time < settings.quietEnd);
+  }
+  const allowsQuiet = (v,id) => ['wake','sleep'].includes(id) || v.settings.times[id]?.allowQuiet === true;
   const title = (v, id) => isCustom(v, id) ? v.settings.times[id].title : id === 'return' ? '偏航回归' : data[id]?.title;
   function chooseQuote(v, day, replace = false) {
     const week = monday(day);
@@ -100,7 +111,10 @@
     if (!ids.includes(id) && !isCustom(v, id) && id !== 'return') return false;
     if (v.settings.times[id]?.removed) return false;
     const item = record(v, day, id);
-    if (source !== 'manual' && (item.status !== '待执行' || !v.settings.times[id]?.enabled)) return false;
+    const unansweredManual = source === 'schedule' && item.notifiedAt == null && !item.history.length &&
+      ['暂时延迟','未记录'].includes(item.status) &&
+      v.events.findLast(event=>event.type==='reminder' && event.key===item.key)?.source === 'manual';
+    if (source !== 'manual' && ((!unansweredManual && item.status !== '待执行') || !v.settings.times[id]?.enabled)) return false;
     if (v.active?.id === id && v.active.day === day) return false;
     if (item.completedAt && id !== 'return' && !work.includes(id)) return false;
     if (id === 'return' && v.rewardHistory.some(row => row.id === 'return' && now.getTime() - row.at < M)) {
@@ -109,9 +123,12 @@
     }
     const passive = v.active && ['sustain', 'wrap', 'backHold'].includes(v.active.stage);
     if (source !== 'manual' && v.active && !passive) {
-      if (!v.queue.some(entry => entry.id === id && entry.day === day)) v.queue.push({ id, day, source });
+      const queued = v.queue.find(entry => entry.id === id && entry.day === day);
+      if (!queued) v.queue.push({ id, day, source });
+      if (source === 'schedule' || queued?.source === 'schedule') announceScheduled(v,item,now);
       return true;
     }
+    if (source === 'manual') v.queue = v.queue.filter(entry=>entry.id!==id || entry.day!==day);
     if (v.active) park(v, '暂时延迟');
     if (id === 'return') {
       const key = day + '/return';
@@ -127,17 +144,30 @@
     }
     return activate(state, item, now, source);
   }
+  function reminderText(state,v,item) {
+    const intro = isCustom(v, item.id) ? '我们来确认一下「' + title(v, item.id) + '」。现在做到哪一步了？'
+      : item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
+    const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
+    const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
+    return [intro, quote, list].filter(Boolean).join('\n\n');
+  }
+  function announceScheduled(v,item,now,queued = true) {
+    if (item.notifiedAt != null) return false;
+    item.notifiedAt = now.getTime();
+    message(v, '「' + title(v,item.id) + '」的定时提醒到了。' + (queued ? '可以点下方按钮处理这条提醒。' : '可以在当前对话里回复。'),
+      'coach', {source:'schedule',at:item.notifiedAt});
+    event(v,queued ? 'reminder_queued' : 'reminder',now,{id:item.id,key:item.key,source:'schedule'});
+    return true;
+  }
   function activate(state, item, now, source) {
     const v = init(state);
     item.status = '待回复';
     item.remindedAt = now.getTime();
     v.active = { id: item.id, key: item.key, day: item.day, stage: item.id === 'return' ? 'recovery' : 'initial',
       due: now.getTime() + v.settings.intervals.unanswered * M, attempts: 0, revision: P.uid() };
-    const intro = isCustom(v, item.id) ? '我们来确认一下「' + title(v, item.id) + '」。现在做到哪一步了？'
-      : item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
-    const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
-    const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
-    message(v, [intro, quote, list].filter(Boolean).join('\n\n'), 'coach', {source, at:now.getTime()});
+    const alreadyAnnounced = source === 'schedule' && item.notifiedAt != null;
+    if (source === 'schedule' && !alreadyAnnounced) item.notifiedAt = now.getTime();
+    message(v, reminderText(state,v,item), 'coach', {source:alreadyAnnounced ? 'queued' : source, at:now.getTime()});
     if (item.id === 'sleep') promptReview(v, 'daily', item.day, now);
     event(v, 'reminder', now, { id: item.id, key: item.key, source });
     return true;
@@ -436,10 +466,10 @@
     if (!state.settings.remind || state.settings.pausedUntil > time) return changed;
     const t = [now.getHours(), now.getMinutes()].map(x => String(x).padStart(2, '0')).join(':');
     const q = state.settings;
-    const quiet = q.quiet && (q.quietStart <= q.quietEnd ? t >= q.quietStart && t < q.quietEnd : t >= q.quietStart || t < q.quietEnd);
+    const quiet = quietAt(q,t);
     if (state.timer?.mode === 'deep' && state.timer.endsAt > time) return changed;
     const a = v.active;
-    if ((!quiet || ['wake', 'sleep'].includes(a?.id)) && a?.due != null && time >= a.due) {
+    if ((!quiet || allowsQuiet(v,a?.id)) && a?.due != null && time >= a.due) {
       if (a.attempts >= 2) park(v, '未记录');
       else {
         a.attempts++;
@@ -467,18 +497,29 @@
       promptReview(v, 'weekly', day, now);
       changed = true;
     }
-    v.queue = v.queue.filter(row => row.day === day && v.settings.times[row.id]?.enabled && !v.settings.times[row.id].removed &&
-      time - P.dueAt(day, v.settings.times[row.id].time) < 60 * M);
-    if (!quiet && (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage)) && v.queue.length) {
-      const next = v.queue.shift();
-      changed = open(state, next.id, now, next.source) || changed;
+    v.queue = v.queue.filter(row => {
+      const setting = v.settings.times[row.id];
+      if (row.day !== day || !setting?.enabled || setting.removed) return false;
+      const delay = time - P.dueAt(day, setting.time);
+      return delay < 60*M && (row.source !== 'schedule' || delay >= 0);
+    });
+    if (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage)) {
+      const index = v.queue.findIndex(row=>!quiet || allowsQuiet(v,row.id));
+      if (index >= 0) {
+        const [next] = v.queue.splice(index,1);
+        changed = open(state, next.id, now, next.source) || changed;
+      }
     }
     for (const id of reminderIds(v)) {
       const setting = v.settings.times[id];
       const due = P.dueAt(day, setting.time);
-      if ((!quiet || ['wake', 'sleep'].includes(id)) && setting.enabled && time >= due && time < due + 30 * M && !v.queue.some(row => row.id === id && row.day === day)) {
-        changed = open(state, id, now, 'schedule') || changed;
-      }
+      if ((quiet && !allowsQuiet(v,id)) || !setting.enabled || time < due || time >= due + 30*M) continue;
+      const pending = v.queue.find(row=>row.id===id && row.day===day);
+      const recordForToday = v.records[day+'/'+id];
+      if (pending) changed = announceScheduled(v,record(v,day,id),now) || changed;
+      else if (v.active?.id === id && v.active.day === day && recordForToday && !recordForToday.history.length && !recordForToday.completedAt) {
+        changed = announceScheduled(v,recordForToday,now,false) || changed;
+      } else changed = open(state,id,now,'schedule') || changed;
     }
     const sleep = v.settings.times.sleep;
     const sleepDue = P.dueAt(day,sleep.time);
@@ -636,6 +677,6 @@
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, title, record, message, open, options, choose, park,
+  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, quietAt, allowsQuiet, title, record, message, open, options, choose, park,
     tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });

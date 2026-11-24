@@ -13,11 +13,6 @@
     ['成长星', '🌱', 'growth', '保存一次每日复盘'],
     ['关爱星', '💗', 'care', '确认完成晨间洗漱或吃完早餐'],
   ];
-  const rhythm = [
-    ['上午', ['wake', 'am']],
-    ['下午', ['pm', 'check']],
-    ['晚上', ['dinner', 'bath', 'night', 'sleep']],
-  ];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'})[c]);
   const badge = ([name, icon, color]) => `<span class="star-badge color-${color}" aria-hidden="true">${icon}</span>`;
   const localDate = day => new Date(day + 'T12:00:00').toLocaleDateString('zh-CN', {month:'long', day:'numeric'});
@@ -47,35 +42,41 @@
   }
 
 
-  function reminderStatus(v, day, id) {
+  function reminderStatus(v, day, id, settings) {
     const row = v.records[day + '/' + id];
     if (v.active?.id === id && v.active.day === day) return '对话中';
     if (!v.settings.times[id].enabled && (!row || row.status === '待执行')) return '已关闭';
     if (row?.status && row.status !== '待执行') return row.status;
+    if (row?.notifiedAt != null && v.queue.some(entry=>entry.day===day && entry.id===id)) return '已提醒 · 待处理';
+    if (settings && !V.allowsQuiet(v,id) && V.quietAt(settings,v.settings.times[id].time)) return '该时段免打扰';
     return '尚未提醒';
   }
 
   function reminders(state, now = new Date()) {
     const v = V.init(state);
     const day = P.dateKey(now);
-    const customIds = V.reminderIds(v).filter(id => V.isCustom(v, id));
-    const groups = customIds.length ? [...rhythm, ['自定义任务', customIds]] : rhythm;
-    return groups.map(([label, ids]) => [label, ids.filter(id => !v.settings.times[id].removed)])
-      .filter(([,ids]) => ids.length).map(([label, ids]) => `<fieldset class="reminder-group"><legend>${label}</legend>${ids.map(id => {
-      const {time, enabled} = v.settings.times[id];
+    return `<fieldset class="reminder-group"><legend>提醒任务</legend>
+      <p class="subtle">拖动每行左侧的手柄排序，也可以用上下箭头。排序后点「保存提醒」。</p>
+      <div id="reminder-list">${V.displayReminderIds(v).map(id => {
+      const {time, enabled, allowQuiet} = v.settings.times[id];
       const title = esc(V.title(v,id));
       const custom = V.isCustom(v,id);
       const active = v.active?.id === id && v.active.day === day;
-      return `<div class="reminder-row" data-saved-reminder="${esc(id)}"><div class="reminder-task"><label class="reminder-toggle">
+      return `<div class="reminder-row" data-saved-reminder="${esc(id)}">
+        <div class="reminder-sort"><span class="reminder-grip" aria-hidden="true" title="按住拖动排序">⠿</span>
+        <div><button type="button" data-v1="moveReminder" data-value="up" aria-label="上移 ${title}">↑</button>
+        <button type="button" data-v1="moveReminder" data-value="down" aria-label="下移 ${title}">↓</button></div></div>
+        <div class="reminder-task"><label class="reminder-toggle">
         <input type="checkbox" name="enabled_${id}" aria-label="启用${title}提醒" ${enabled ? 'checked' : ''}>
         ${custom ? '<span>启用提醒</span>' : '<strong>' + title + '</strong>'}</label>
-        ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}</div>
-        <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id))}</span>
+        ${custom ? `<input class="field reminder-name" name="title_${id}" aria-label="自定义任务名称" value="${title}" maxlength="60" required>` : ''}
+        ${!['wake','sleep'].includes(id) ? `<label class="quiet-exception"><input type="checkbox" name="quiet_${id}" ${allowQuiet ? 'checked' : ''}> 免打扰时也提醒</label>` : ''}</div>
+        <span class="rhythm-status" data-reminder-status="${id}">${esc(reminderStatus(v, day, id, state.settings))}</span>
         <input type="time" class="field" name="time_${id}" aria-label="${title}的提醒时间" value="${esc(time)}" required>
         <button type="button" class="secondary small reminder-open" data-v1="open" data-value="${esc(id)}" aria-label="${title} · ${active ? '继续对话' : '现在聊聊'}">${active ? '继续对话' : '现在聊聊'}</button>
         <button type="button" class="reminder-minus" data-v1="removeReminder" aria-label="移除${title}">−</button>
         </div>`;
-    }).join('')}</fieldset>`).join('');
+    }).join('')}</div></fieldset>`;
   }
 
   function sky(state) {
