@@ -18,7 +18,7 @@
   const voice = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   const routes = {chat:'v1', schedule:'v1reminders', review:'v1review', library:'v1library', memory:'v1memory', ideas:'v1ideas'};
-  function mount({ state: getState, page, save, render, go, toast }) {
+  function mount({ state: getState, page, save, render, go, toast, syncPanel }) {
     const vNow = () => V.init(getState());
     const date = () => P.dateKey();
     const api = location.protocol !== 'file:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
@@ -39,24 +39,26 @@
       if (audio.state === 'suspended') await audio.resume().catch(() => {});
       return audio.state === 'running';
     }
-    function playSound() {
+    const volumeScale = value => P.bounded(value,0,200,125) / 100;
+    function playSound(scale = volumeScale(vNow().settings.volume)) {
       if (!vNow().settings.sound || audio?.state !== 'running') return;
       const notes = [
         [659, 0, .044, .18], [784, .045, .035, .22], [1047, .095, .038, .26],
         [1319, .13, .020, .21], [1568, .155, .015, .19], [2093, .24, .010, .17],
         [1760, .303, .009, .23], [2637, .37, .006, .19],
       ];
-      playNotes(notes);
+      playNotes(notes,0,scale);
     }
     function playCompletionSound() {
       if (vNow().settings.sound) void armAudio().then(ready=>{ if (ready) playSound(); }).catch(()=>{});
     }
-    function playReminderSound(delay = 0) {
+    function playReminderSound(delay = 0,scale = volumeScale(vNow().settings.volume)) {
       if (!remindersAudible() || audio?.state !== 'running') return false;
-      playNotes([[740,0,.032,.13],[988,.115,.026,.20]],delay);
+      playNotes([[740,0,.032,.13],[988,.115,.026,.20]],delay,scale);
       return true;
     }
-    function playNotes(notes,delay = 0) {
+    function playNotes(notes,delay,scale) {
+      if (!scale) return;
       const when = audio.currentTime + delay;
       for (const [frequency, offset, volume, duration] of notes) {
         const start = when + offset;
@@ -65,7 +67,7 @@
         osc.type = 'sine';
         osc.frequency.value = frequency;
         gain.gain.setValueAtTime(.0001, start);
-        gain.gain.exponentialRampToValueAtTime(volume, start + .008);
+        gain.gain.exponentialRampToValueAtTime(volume*scale, start + .008);
         gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
         osc.connect(gain).connect(audio.destination);
         osc.start(start);
@@ -156,6 +158,8 @@
     }
     function settingsPage(v) {
       return card('提醒与奖励音效', `<form data-v1-form="settings">
+        <label>总音量 <output id="v1-volume-value">${Math.round(volumeScale(v.settings.volume)*100)}%</output>
+        <input class="field" type="range" name="volume" min="0" max="200" step="5" value="${Math.round(volumeScale(v.settings.volume)*100)}" aria-label="总音量"></label>
         <label><input type="checkbox" name="reminderSound" ${remindersAudible() ? 'checked' : ''}> 播放定时提醒提示音</label>
         <div class="controls">${btn('soundDemo','试听定时提醒音','reminder')}</div>
         <p class="subtle">到点提醒会响。你回复后的引导消息保持静音。首次使用时，可点击试听开启网页播放。</p>
@@ -163,6 +167,7 @@
         <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
         <button class="primary">保存音效和奖励设置</button></form>`) +
+        card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
         card('教练偏好与数据', `<div class="controls">
           <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
@@ -426,6 +431,7 @@
       for (const key of Object.keys(levelName)) s[key] = P.bounded(data[key],1,1000,s[key]);
       s.sound = Boolean(data.sound);
       s.reminderSound = Boolean(data.reminderSound);
+      s.volume = P.bounded(data.volume,0,200,125);
       toast('奖励设置已保存');
     }
     function recognize(id) {
@@ -560,8 +566,9 @@
           if (reminder ? !remindersAudible() : !v.settings.sound) return toast('请先启用并保存对应的音效设置');
           return void armAudio().then(ready => {
             if (ready) {
-              if (reminder) playReminderSound();
-              else playSound();
+              const scale = volumeScale(b.form?.elements.volume?.value ?? v.settings.volume);
+              if (reminder) playReminderSound(0,scale);
+              else playSound(scale);
             }
             else toast('浏览器未能播放音效');
           }).catch(() => toast('浏览器未能播放音效'));
@@ -621,6 +628,10 @@
       if (el.id==='v1-review-date' && el.value) {day=el.value; paint();}
       if (el.id==='v1-memory-on') {v.settings.memory=el.checked;save();}
       if (el.matches('[data-v1-quote]')) {v.preferences[el.dataset.v1Quote]=el.value;paint();}
+    });
+    document.addEventListener('input',e=>{
+      if (e.target.name !== 'volume' || e.target.form?.dataset.v1Form !== 'settings') return;
+      document.getElementById('v1-volume-value').textContent = e.target.value + '%';
     });
     document.addEventListener('submit',e=>{
       const form=e.target;

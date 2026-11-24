@@ -36,6 +36,7 @@
   let toastTimer;
   let modelAvailable = false;
   let modelPending = false;
+  let settingsSync;
 
   function toast(message) {
     const node = byId('toast');
@@ -47,6 +48,7 @@
   function save() {
     try { P.write(localStorage, state); }
     catch { toast('浏览器保存失败，请到设置导出当前记录'); }
+    settingsSync?.onSave();
   }
   function chat(role, text) {
     state.chat.push({ role, text });
@@ -521,7 +523,13 @@
       }
     } catch (error) { toast(error.message); }
   });
-  const v1View = window.PlanetV1View.mount({ state: () => state, page: () => page, save, render, go, toast });
+  settingsSync = window.PlanetSettingsSync?.mount({state:()=>state,save,toast,storage:localStorage,config:window.PLANET_SYNC_CONFIG,
+    redraw:()=>{ const panel=byId('settings-sync-panel'); if(panel)panel.innerHTML=settingsSync.panel(); }}) ?? {
+    panel:()=>'<p class="subtle">设置保存在当前浏览器。</p>',
+    onSave(){},
+  };
+  const v1View = window.PlanetV1View.mount({ state: () => state, page: () => page, save, render, go, toast,
+    syncPanel:()=>settingsSync.panel() });
   render();
   save();
   setInterval(loop, 1000);
