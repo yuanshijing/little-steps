@@ -167,6 +167,8 @@
       }
       clearTimeout(timer);
       user=next;remote=null;pending=null;busy=false;last='';hadError=false;
+      const entry=document.querySelector('[data-account-entry]');
+      if(entry)entry.textContent=user?'账号与同步':'邮箱登录';
       status=user?'正在检查云端设置…':'使用邮箱账号同步设置';
       redraw();
       if(user)void pull();

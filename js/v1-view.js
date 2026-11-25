@@ -55,8 +55,7 @@
     }
     function playReminderSound(delay = 0,scale = volumeScale(vNow().settings.volume)) {
       if (!remindersAudible() || audio?.state !== 'running') return false;
-      playNotes([[587,0,.096,.33],[784,.19,.105,.38],[988,.42,.102,.47],
-        [1175,.63,.075,.53],[1568,.63,.028,.47]],delay,scale);
+      playNotes([[880,0,.095,.115],[1175,.145,.105,.16]],delay,scale);
       return true;
     }
     function playNotes(notes,delay,scale) {
@@ -159,7 +158,8 @@
         <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>`);
     }
     function settingsPage(v) {
-      return card('提醒与奖励音效', `<form data-v1-form="settings">
+      return card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
+        card('提醒与奖励音效', `<form data-v1-form="settings">
         <label>总音量 <output id="v1-volume-value">${Math.round(volumeScale(v.settings.volume)*100)}%</output>
         <input class="field" type="range" name="volume" min="0" max="200" step="5" value="${Math.round(volumeScale(v.settings.volume)*100)}" aria-label="总音量"></label>
         <label><input type="checkbox" name="reminderSound" ${remindersAudible() ? 'checked' : ''}> 播放定时提醒提示音</label>
@@ -169,7 +169,6 @@
         <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
         <button class="primary">保存音效和奖励设置</button></form>`) +
-        card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
         card('教练偏好与数据', `<div class="controls">
           <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
@@ -715,7 +714,7 @@
         const sleepSent = fresh.some(row=>row.source==='schedule' && row.reminderId==='sleep');
         const alerts = fresh.filter(row=>row.source==='schedule' ||
           (row.source==='review' && (row.reviewKind==='weekly' || !sleepSent)));
-        const played = alerts.map((_,index)=>playReminderSound(index*1.22)).some(Boolean);
+        const played = alerts.map((_,index)=>playReminderSound(index*.32)).some(Boolean);
         save();
         if (page() === 'v1') paint();
         if (page() === 'v1reminders') updateReminderStatuses(v);
