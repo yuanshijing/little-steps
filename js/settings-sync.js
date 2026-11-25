@@ -159,6 +159,26 @@
       clearTimeout(timer);
       timer=setTimeout(()=>void push(),350);
     }
+    let trialVersion=0;
+    async function trialCall(route,input) {
+      const session=(await client.auth.getSession()).data?.session;
+      if(!session || session.user.id!==user?.id)throw Error('请先登录试用邮箱');
+      const res=await fetch(config.url+'/functions/v1/trial-coach',{method:'POST',redirect:'error',
+        headers:{apikey:config.key,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},
+        signal:AbortSignal.timeout(26000),body:JSON.stringify({route,input})});
+      if(!res.ok)throw Error(({403:'此账号的试用资格已停用',429:'今天的试用次数已用完',401:'请重新登录'})[res.status]||'试用模型暂时无法连接');
+      const result=await res.json();
+      if(user?.id!==session.user.id)throw Error('登录账号已切换');
+      return result;
+    }
+    async function refreshTrial(){
+      const version=++trialVersion;
+      if(!user || !enabled)return;
+      let result;
+      try {result=await trialCall('status');} catch {result={ready:false};}
+      if(version===trialVersion)window.dispatchEvent(new CustomEvent('planet-trial',{detail:result}));
+    }
+    if(enabled)window.PlanetTrial={run:trialCall,refresh:refreshTrial};
     function sessionChanged(session) {
       const next=session?.user;
       if (next?.id===user?.id) {
@@ -169,6 +189,9 @@
       user=next;remote=null;pending=null;busy=false;last='';hadError=false;
       const entry=document.querySelector('[data-account-entry]');
       if(entry)entry.textContent=user?'账号与同步':'邮箱登录';
+      ++trialVersion;
+      window.dispatchEvent(new CustomEvent('planet-trial',{detail:{ready:false}}));
+      if(user)void refreshTrial();
       status=user?'正在检查云端设置…':'使用邮箱账号同步设置';
       redraw();
       if(user)void pull();
@@ -239,6 +262,7 @@
         });
       });
       window.addEventListener('focus',()=>{
+        if(user)void refreshTrial();
         if(!user||pending||busy)return;
         if(hadError && remote && signature()!==last){hadError=false;void push();}
         else if(!remote || signature()===last)void pull();

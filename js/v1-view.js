@@ -28,6 +28,16 @@
     let modelOptions = [];
     let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 可在设置中连接 DeepSeek';
     let modelEnabled = false;
+    let trial=null;
+    window.addEventListener('planet-trial',event=>{
+      if(!publicModel)return;
+      trial=event.detail.ready ? event.detail : null;
+      modelEnabled=Boolean(trial || publicModel.status().enabled);
+      modelStatus=trial ? '内测 DeepSeek · 研究方付费 · 今日 '+trial.used+'/'+trial.limit+' 次' :
+        event.detail.eligible ? '已加入试用名单 · 等待后台启用模型' :
+        modelEnabled ? 'DeepSeek 已连接 · 个人账户付费' : '基础教练模式 · 可在设置中连接 DeepSeek';
+      if(['v1','v1settings','v1review'].includes(page()) && !document.activeElement?.matches('input,textarea'))paint();
+    });
     let todayTokens;
     let reviewPending = '';
     let draftSequence = 0;
@@ -124,9 +134,9 @@
         ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}${btn('remindOff','关闭该环节提醒')}</div>${custom}` : ''}
         ${modelOptions.length ? '<div class="controls">' + modelOptions.map(text => btn('modelOption', text, text)).join('') + '</div>' : ''}
         <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
-        <div class="controls"><button class="primary">发给小星</button>${voice ? btn('voice','语音输入','v1-input') : ''}
-        ${(api || modelEnabled) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
-        ${(api || modelEnabled) ? '<p class="subtle">使用模型按钮会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
+        <div class="controls"><button class="primary">${trial ? '发给小星 · 试用' : '发给小星'}</button>${voice ? btn('voice','语音输入','v1-input') : ''}
+        ${(!trial && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
+        ${(api || modelEnabled) ? '<p class="subtle">使用模型会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
@@ -172,7 +182,7 @@
         card('教练偏好与数据', `<div class="controls">
           <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
-        card('模型连接', `<p>${esc(modelStatus)}</p>${(api || publicModel) ? (modelEnabled ? (api ? btn('connection','测试已配置模型') : btn('disconnectModel','断开 DeepSeek')) : '') +
+        card('模型连接', `<p>${esc(modelStatus)}</p>${trial ? '<p class="subtle">试用次数由后台按账号计算，每天北京时间零点更新。</p>' : (api || publicModel) ? (modelEnabled ? (api ? btn('connection','测试已配置模型') : btn('disconnectModel','断开 DeepSeek')) : '') +
           `<form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
           <input class="field" type="password" name="key" placeholder="sk-…" required maxlength="223" autocomplete="off" spellcheck="false"></label>
           <p class="subtle">${api ? '测试发送一条示例问题。密钥保存在本机服务的内存中，关闭服务后需要重新填写。' : '测试会向 DeepSeek 发送一条示例问题，并计入你自己的 DeepSeek 用量。密钥只在当前页面的内存中使用，刷新或关闭页面后需要重新填写。'}</p>
@@ -210,6 +220,7 @@
           : '<p class="subtle">当前未连接大模型服务。</p>'}</section>`;
     }
     async function callModel(route,input) {
+      if (trial) return window.PlanetTrial.run(route,input);
       if (publicModel) return publicModel.run(route,input);
       const response = await fetch('/api/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json'},
         signal:AbortSignal.timeout(25000),body:JSON.stringify(input)});
@@ -451,6 +462,7 @@
     }
     function usageLabel() {
       if (!modelEnabled) return '今日累计用量 · 未连接大模型';
+      if (trial) return '今日试用用量 · '+trial.tokens+' Token';
       if (publicModel) todayTokens = publicModel.status().todayTokens;
       return '今日累计用量 · ' + (Number.isFinite(todayTokens) ? todayTokens.toLocaleString('zh-CN') + ' Token' : '用量暂不可用') + (publicModel ? ' · 当前页面' : '');
     }
@@ -461,6 +473,7 @@
     }
     async function refreshUsage() {
       if (!modelEnabled) return;
+      if (trial) return window.PlanetTrial.refresh();
       if (publicModel) return updateUsage(publicModel.status());
       try {
         const response = await fetch('/api/v1/config',{signal:AbortSignal.timeout(5000)});
@@ -533,7 +546,7 @@
         if (vNow() !== v || v.active?.revision !== current) return;
         fallback.text = value.reply;
         modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
-      } catch { fallback.text = '模型暂不可用，已切回基础教练。\n' + fallback.text; }
+      } catch (error) { fallback.text = (trial ? error.message : '模型暂不可用') + '。以下是基础教练建议。\n' + fallback.text; }
       finally { if (page() === 'v1') paint(); else save(); void refreshUsage(); }
     }
     document.addEventListener('click', e => {
@@ -662,7 +675,7 @@
             if (configureSchedule(data) === false) return;
             break;
           case 'settings': configureRewards(data); break;
-          case 'chat': void reply(data.message,e.submitter?.value==='model'); form.reset(); break;
+          case 'chat': void reply(data.message,Boolean(trial)||e.submitter?.value==='model'); form.reset(); break;
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
           case 'daily':
