@@ -22,10 +22,11 @@
     const vNow = () => V.init(getState());
     const date = () => P.dateKey();
     const api = location.protocol !== 'file:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
+    const publicModel = !api && location.protocol === 'https:' ? window.PlanetPublicDeepSeek : null;
     let day = date();
     let lastReview = '';
     let modelOptions = [];
-    let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 当前站点使用预设分支';
+    let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 可在设置中连接 DeepSeek';
     let modelEnabled = false;
     let todayTokens;
     let reviewPending = '';
@@ -54,7 +55,8 @@
     }
     function playReminderSound(delay = 0,scale = volumeScale(vNow().settings.volume)) {
       if (!remindersAudible() || audio?.state !== 'running') return false;
-      playNotes([[740,0,.032,.13],[988,.115,.026,.20]],delay,scale);
+      playNotes([[587,0,.096,.33],[784,.19,.105,.38],[988,.42,.102,.47],
+        [1175,.63,.075,.53],[1568,.63,.028,.47]],delay,scale);
       return true;
     }
     function playNotes(notes,delay,scale) {
@@ -124,8 +126,8 @@
         ${modelOptions.length ? '<div class="controls">' + modelOptions.map(text => btn('modelOption', text, text)).join('') + '</div>' : ''}
         <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
         <div class="controls"><button class="primary">发给小星</button>${voice ? btn('voice','语音输入','v1-input') : ''}
-        ${api ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
-        ${api ? '<p class="subtle">使用模型按钮会发送本条消息、今日重点、近期对话和你允许检索的相关记忆。</p>' : ''}
+        ${(api || modelEnabled) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
+        ${(api || modelEnabled) ? '<p class="subtle">使用模型按钮会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
@@ -171,11 +173,11 @@
         card('教练偏好与数据', `<div class="controls">
           <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
           ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
-        card('模型连接', `<p>${esc(modelStatus)}</p>${api ? (modelEnabled ? btn('connection','测试已配置模型') : '') +
+        card('模型连接', `<p>${esc(modelStatus)}</p>${(api || publicModel) ? (modelEnabled ? (api ? btn('connection','测试已配置模型') : btn('disconnectModel','断开 DeepSeek')) : '') +
           `<form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
           <input class="field" type="password" name="key" placeholder="sk-…" required maxlength="223" autocomplete="off" spellcheck="false"></label>
-          <p class="subtle">测试只发送一条示例问题。密钥保存在本机服务的内存中，关闭服务后需要重新填写。</p>
-          <button class="primary">连接并测试 DeepSeek</button></form>` : '<p>公开静态站使用基础教练。本机版可连接 DeepSeek。</p>'}`);
+          <p class="subtle">${api ? '测试发送一条示例问题。密钥保存在本机服务的内存中，关闭服务后需要重新填写。' : '测试会向 DeepSeek 发送一条示例问题，并计入你自己的 DeepSeek 用量。密钥只在当前页面的内存中使用，刷新或关闭页面后需要重新填写。'}</p>
+          <button class="primary">连接并测试 DeepSeek</button></form>` : '<p>在 HTTPS 网站上打开设置即可连接 DeepSeek。</p>'}`);
     }
     function reviewInput(v,kind,reviewDay,note) {
       const stats = kind === 'weekly' ? V.weekly(v,reviewDay) : null;
@@ -208,6 +210,13 @@
         ${reviewPending === key ? '<p class="subtle" role="status">小星正在整理……</p>' : btn('generateReview',stored?'重新生成大模型总结':'用大模型生成总结',kind)}`
           : '<p class="subtle">当前未连接大模型服务。</p>'}</section>`;
     }
+    async function callModel(route,input) {
+      if (publicModel) return publicModel.run(route,input);
+      const response = await fetch('/api/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json'},
+        signal:AbortSignal.timeout(25000),body:JSON.stringify(input)});
+      if (!response.ok) throw new Error();
+      return response.json();
+    }
     async function generateReview(kind) {
       if (!modelEnabled || reviewPending || !['daily','weekly'].includes(kind)) return;
       const state = getState(), v = vNow(), reviewDay = day, key = kind + '/' + day;
@@ -222,10 +231,8 @@
       reviewPending = key;
       refresh();
       try {
-        const response = await fetch('/api/v1/review',{method:'POST',headers:{'Content-Type':'application/json'},
-          signal:AbortSignal.timeout(25000),body:JSON.stringify({...content,consent:true})});
-        const result = await response.json();
-        if (!response.ok || typeof result.summary !== 'string') throw new Error();
+        const result = await callModel('review',{...content,consent:true});
+        if (typeof result.summary !== 'string') throw new Error();
         if (state !== getState()) return;
         (v.reviewSummaries ??= {})[key] = {text:result.summary,at:Date.now()};
         save();
@@ -444,8 +451,9 @@
       speech.start();
     }
     function usageLabel() {
-      if (!api || !modelEnabled) return '今日累计用量 · 未连接大模型';
-      return '今日累计用量 · ' + (Number.isFinite(todayTokens) ? todayTokens.toLocaleString('zh-CN') + ' Token' : '用量暂不可用');
+      if (!modelEnabled) return '今日累计用量 · 未连接大模型';
+      if (publicModel) todayTokens = publicModel.status().todayTokens;
+      return '今日累计用量 · ' + (Number.isFinite(todayTokens) ? todayTokens.toLocaleString('zh-CN') + ' Token' : '用量暂不可用') + (publicModel ? ' · 当前页面' : '');
     }
     function updateUsage(status) {
       todayTokens = status.todayTokens;
@@ -453,7 +461,8 @@
       if (label) label.textContent = usageLabel();
     }
     async function refreshUsage() {
-      if (!api || !modelEnabled) return;
+      if (!modelEnabled) return;
+      if (publicModel) return updateUsage(publicModel.status());
       try {
         const response = await fetch('/api/v1/config',{signal:AbortSignal.timeout(5000)});
         if (response.ok) updateUsage(await response.json());
@@ -479,26 +488,30 @@
       if (['v1','v1settings','v1review'].includes(page())) paint();
     }
     async function connectDeepSeek(form,key) {
-      if (!api) return;
+      if (!api && !publicModel) return;
       const button = form.querySelector('button');
       button.disabled = true;
       button.textContent = '正在测试 DeepSeek…';
       form.reset();
       try {
-        const response = await fetch('/api/v1/deepseek/connect',{method:'POST',headers:{'Content-Type':'application/json'},
-          signal:AbortSignal.timeout(24000),body:JSON.stringify({key})});
-        const result = await response.json();
-        if (!response.ok || !result.enabled) {
-          toast(result.error || '未能连接 DeepSeek');
-          return;
+        let result;
+        if (publicModel) result = await publicModel.connect(key);
+        else {
+          const response = await fetch('/api/v1/deepseek/connect',{method:'POST',headers:{'Content-Type':'application/json'},
+            signal:AbortSignal.timeout(24000),body:JSON.stringify({key})});
+          result = await response.json();
+          if (!response.ok || !result.enabled) {
+            toast(result.error || '未能连接 DeepSeek');
+            return;
+          }
         }
         modelEnabled = true;
         updateUsage(result);
         modelStatus = 'DeepSeek 已连接并测试成功 · ' + result.model;
         if (['v1','v1settings','v1review'].includes(page())) paint();
         toast('DeepSeek 连接成功');
-      } catch {
-        toast('未能完成连接，请检查本机服务和网络后重试');
+      } catch (error) {
+        toast(publicModel ? (error.message === 'Failed to fetch' ? '无法连接 DeepSeek，请检查网络' : error.message) : '未能完成连接，请检查本机服务和网络后重试');
       } finally {
         button.disabled = false;
         button.textContent = '连接并测试 DeepSeek';
@@ -511,15 +524,13 @@
       modelOptions = [];
       const fallback = v.messages.at(-1);
       const current = v.active?.revision;
-      if (!api || !useModel || result !== 'fallback') return;
+      if ((!api && !modelEnabled) || !useModel || result !== 'fallback') return;
       try {
         const scene = v.active?.id ?? 'all';
         const memories = v.settings.memory ? v.memory.filter(m=>m.scene===scene || m.scene==='all').slice(-4) : [];
-        const response = await fetch('/api/v1/coach',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(25000),
-          body:JSON.stringify({text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
-            schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories})});
-        const value = await response.json();
-        if (!response.ok || typeof value.reply !== 'string') throw new Error();
+        const value = await callModel('coach',{text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
+          schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories});
+        if (typeof value.reply !== 'string') throw new Error();
         if (vNow() !== v || v.active?.revision !== current) return;
         fallback.text = value.reply;
         modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
@@ -535,6 +546,13 @@
         if (name === 'tab') return selectTab(value);
         if (name === 'addReminder') return addReminderDraft();
         if (name === 'removeReminder') return removeReminderRow(b);
+        if (name === 'disconnectModel' && publicModel) {
+          publicModel.disconnect();
+          modelEnabled = false;
+          modelStatus = '基础教练模式 · 可在设置中连接 DeepSeek';
+          paint();
+          return;
+        }
         if (name === 'generateReview') return void generateReview(value);
         if (name === 'openReview') {
           const prompt = v.reviewPrompts?.[value];
@@ -697,7 +715,7 @@
         const sleepSent = fresh.some(row=>row.source==='schedule' && row.reminderId==='sleep');
         const alerts = fresh.filter(row=>row.source==='schedule' ||
           (row.source==='review' && (row.reviewKind==='weekly' || !sleepSent)));
-        const played = alerts.map((_,index)=>playReminderSound(index*.35)).some(Boolean);
+        const played = alerts.map((_,index)=>playReminderSound(index*1.22)).some(Boolean);
         save();
         if (page() === 'v1') paint();
         if (page() === 'v1reminders') updateReminderStatuses(v);

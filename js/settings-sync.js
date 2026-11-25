@@ -187,11 +187,19 @@
     }
     if(enabled) {
       const redirect=location.origin+location.pathname;
-      import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/+esm')
-        .then(({createClient})=>{
-          client=createClient(config.url,config.key,{auth:{flowType:'pkce'}});
+      const sdk=document.createElement('script');
+      sdk.src='https://unpkg.com/@supabase/supabase-js@2.119.2/dist/umd/supabase.js';
+      sdk.integrity='sha384-A97u3Qnt9GZHURO9YJZRe7VQgGUeFzcv6I1oIGnUTxQrCxnpQMwR0/G8F2zt9abZ';
+      sdk.crossOrigin='anonymous';
+      const sdkUnavailable=()=>{ status='暂时无法加载登录服务'; redraw(); };
+      sdk.addEventListener('load',()=>{
+        try {
+          client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce'}});
           client.auth.onAuthStateChange((_,session)=>setTimeout(()=>sessionChanged(session),0));
-        }).catch(()=>{status='暂时无法加载登录服务';redraw();});
+        } catch { sdkUnavailable(); }
+      },{once:true});
+      sdk.addEventListener('error',sdkUnavailable,{once:true});
+      document.head.append(sdk);
       document.addEventListener('submit',async event=>{
         const form=event.target;
         if(!form.matches('[data-sync-form]'))return;
@@ -204,7 +212,14 @@
         try {
           const result=register?await client.auth.signUp({email,password,options:{emailRedirectTo:redirect}})
             :await client.auth.signInWithPassword({email,password});
-          if(result.error){toast('未能完成'+(register?'注册':'登录')+'，请核对邮箱和密码。');return;}
+          if(result.error){
+            const code=result.error.code;
+            toast(code==='email_address_not_authorized' ? '验证邮件目前只对内测邮箱开放。' :
+              code==='over_email_send_rate_limit' ? '验证邮件发送太频繁，请稍后再试。' :
+              code==='email_not_confirmed' ? '请先打开邮箱确认注册。' :
+              '未能完成'+(register?'注册':'登录')+'，请核对邮箱和密码。');
+            return;
+          }
           if(register&&!result.data.session)toast('请打开邮箱里的验证链接，再回来登录。');
         } catch { toast('无法连接登录服务，请稍后重试。'); }
       });
