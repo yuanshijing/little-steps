@@ -160,6 +160,25 @@
       timer=setTimeout(()=>void push(),350);
     }
     let trialVersion=0;
+    let loginPromptShown=false;
+    let loginDialog;
+    function showFirstLogin(){
+      if(loginPromptShown)return;
+      loginPromptShown=true;
+      try {
+        if(sessionStorage.getItem('planet-login-dismissed'))return;
+        sessionStorage.setItem('planet-login-dismissed','1');
+      } catch {}
+      loginDialog=document.createElement('dialog');
+      loginDialog.setAttribute('aria-labelledby','planet-login-title');
+      loginDialog.style.cssText='width:min(90vw,420px);padding:24px;border:1px solid #ded9eb;border-radius:18px;box-sizing:border-box;color:inherit';
+      loginDialog.innerHTML='<h2 id="planet-login-title" class="section-title">登录小步星球</h2>'+panel()+
+        '<button type="button" class="secondary small" data-dismiss-login>稍后登录</button>';
+      loginDialog.querySelector('[data-dismiss-login]').addEventListener('click',()=>loginDialog.close());
+      loginDialog.addEventListener('close',()=>loginDialog.remove(),{once:true});
+      document.body.append(loginDialog);
+      loginDialog.showModal();
+    }
     async function trialCall(route,input) {
       const session=(await client.auth.getSession()).data?.session;
       if(!session || session.user.id!==user?.id)throw Error('请先登录试用邮箱');
@@ -182,13 +201,15 @@
     function sessionChanged(session) {
       const next=session?.user;
       if (next?.id===user?.id) {
-        if(!next){status='使用邮箱账号同步设置';redraw();}
+        if(!next){status='使用邮箱账号同步设置';redraw();showFirstLogin();}
         return;
       }
       clearTimeout(timer);
-      user=next;remote=null;pending=null;busy=false;last='';hadError=false;
+      user=next;
+      if(user)loginDialog?.close();
+      remote=null;pending=null;busy=false;last='';hadError=false;
       const entry=document.querySelector('[data-account-entry]');
-      if(entry)entry.textContent=user?'账号与同步':'邮箱登录';
+      if(entry)entry.textContent=user?.email||'邮箱登录';
       ++trialVersion;
       window.dispatchEvent(new CustomEvent('planet-trial',{detail:{ready:false}}));
       if(user)void refreshTrial();
@@ -200,8 +221,9 @@
     function panel() {
       if(!enabled)return '<p class="subtle">'+status+'。设置继续保存在当前浏览器。</p>';
       if(!user)return `<p class="subtle" role="status">${esc(status)}</p><form data-sync-form method="post">
-        <label>邮箱<input class="field" type="email" name="email" required autocomplete="email"></label>
+        <label>邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
         <label>密码<input class="field" type="password" name="password" required minlength="8" autocomplete="current-password"></label>
+        <label><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
         <div class="controls"><button class="primary" name="mode" value="login">登录</button>
         <button class="secondary" name="mode" value="register">创建邮箱账号</button></div></form>`;
       return `<p>已登录 ${esc(user.email)}</p><p class="subtle" role="status">${esc(status)}</p>
@@ -210,6 +232,17 @@
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
         <p class="subtle">同步提醒、晨间语录和音效。对话和复盘仍保存在此设备。</p>`;
     }
+    let rememberLogin=true;
+    const authStorage={
+      getItem(key){const temporary=sessionStorage.getItem(key);if(temporary!==null)rememberLogin=false;return temporary ?? storage.getItem(key);},
+      setItem(key,value){
+        const target=rememberLogin?storage:sessionStorage;
+        const other=rememberLogin?sessionStorage:storage;
+        target.setItem(key,value);
+        other.removeItem(key);
+      },
+      removeItem(key){sessionStorage.removeItem(key);storage.removeItem(key);},
+    };
     if(enabled) {
       const redirect=location.origin+location.pathname;
       const sdk=document.createElement('script');
@@ -219,7 +252,7 @@
       const sdkUnavailable=()=>{ status='暂时无法加载登录服务'; redraw(); };
       sdk.addEventListener('load',()=>{
         try {
-          client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce'}});
+          client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce',storage:authStorage}});
           client.auth.onAuthStateChange((_,session)=>setTimeout(()=>sessionChanged(session),0));
         } catch { sdkUnavailable(); }
       },{once:true});
@@ -233,7 +266,7 @@
         const fields=new FormData(form);
         const email=String(fields.get('email')).trim(),password=String(fields.get('password'));
         const register=event.submitter?.value==='register';
-        form.elements.password.value='';
+        rememberLogin=fields.has('remember');
         try {
           const result=register?await client.auth.signUp({email,password,options:{emailRedirectTo:redirect}})
             :await client.auth.signInWithPassword({email,password});
@@ -245,8 +278,12 @@
               '未能完成'+(register?'注册':'登录')+'，请核对邮箱和密码。');
             return;
           }
+          if(!register && rememberLogin && window.PasswordCredential && navigator.credentials?.store){
+            void navigator.credentials.store(new PasswordCredential({id:email,password})).catch(()=>{});
+          }
           if(register&&!result.data.session)toast('请打开邮箱里的验证链接，再回来登录。');
         } catch { toast('无法连接登录服务，请稍后重试。'); }
+        finally { form.elements.password.value=''; }
       });
       document.addEventListener('click',event=>{
         const op=event.target.closest('[data-sync]')?.dataset.sync;

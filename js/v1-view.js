@@ -65,7 +65,7 @@
     }
     function playReminderSound(delay = 0,scale = volumeScale(vNow().settings.volume)) {
       if (!remindersAudible() || audio?.state !== 'running') return false;
-      playNotes([[880,0,.095,.115],[1175,.145,.105,.16]],delay,scale);
+      playNotes([[880,0,.18,.115],[1175,.145,.2,.16]],delay,scale);
       return true;
     }
     function playNotes(notes,delay,scale) {
@@ -78,7 +78,7 @@
         osc.type = 'sine';
         osc.frequency.value = frequency;
         gain.gain.setValueAtTime(.0001, start);
-        gain.gain.exponentialRampToValueAtTime(volume*scale, start + .008);
+        gain.gain.exponentialRampToValueAtTime(Math.min(.8,volume*scale*1.35), start + .008);
         gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
         osc.connect(gain).connect(audio.destination);
         osc.start(start);
