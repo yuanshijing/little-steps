@@ -159,6 +159,54 @@
       clearTimeout(timer);
       timer=setTimeout(()=>void push(),350);
     }
+    let emailEnabled,emailBusy=false,emailEligible=null,emailError='',accountVersion=0;
+    const emailPreference=()=>emailEnabled ?? (emailEligible===true);
+    async function readEmailPreference() {
+      if(!user || emailBusy)return;
+      const id=user.id,version=accountVersion;
+      emailBusy=true;
+      emailError='';
+      try {
+        const result=await client.from('reminder_email_subscriptions').select('enabled').eq('user_id',id).maybeSingle();
+        if(version!==accountVersion)return;
+        if(result.error)throw result.error;
+        emailEnabled=result.data?.enabled ?? null;
+      } catch {
+        if(version===accountVersion)emailError='暂时无法读取邮件提醒设置，请重试。';
+      } finally {
+        if(version===accountVersion){emailBusy=false;redraw();}
+      }
+    }
+    async function setEmailPreference(value) {
+      if(!user || emailBusy || emailEnabled===undefined || value===emailPreference() || (value && emailEligible!==true))return;
+      const id=user.id,version=accountVersion;
+      emailBusy=true;
+      emailError='';
+      redraw();
+      try {
+        const result=await client.from('reminder_email_subscriptions').upsert({user_id:id,enabled:value},{onConflict:'user_id'})
+          .select('enabled').single();
+        if(version!==accountVersion)return;
+        if(result.error || result.data?.enabled!==value)throw Error('email preference');
+        emailEnabled=result.data.enabled;
+        toast(value?'已开启邮件定时提醒':'已关闭邮件定时提醒');
+      } catch {
+        if(version===accountVersion)emailError='无法确认保存结果，请重试。';
+      } finally {
+        if(version===accountVersion){emailBusy=false;redraw();}
+      }
+    }
+    function emailPreferencePanel() {
+      const checked=emailEnabled!==undefined&&emailPreference();
+      const disabled=emailBusy||emailEnabled===undefined||(!checked&&emailEligible!==true);
+      const detail=emailError || (emailBusy?'正在同步邮件提醒设置…':!checked&&emailEligible===false?'目前仅已验证的内测邮箱可开启。':
+        emailEligible===null&&!checked?'正在检查邮件提醒是否可用。':'按已同步的定时提醒发送至登录邮箱，使用北京时间。');
+      return `<div>
+        <label class="check"><input type="checkbox" data-reminder-email aria-describedby="email-reminder-help"${checked?' checked':''}${disabled?' disabled':''}> 接收定时提醒邮件</label>
+        <p id="email-reminder-help" class="subtle" role="status">${detail}</p>
+        ${emailError||(!emailBusy&&emailEligible===null)?button('email-retry','重新检查邮件提醒'):''}
+      </div>`;
+    }
     let trialVersion=0;
     let loginPromptShown=false;
     let loginDialog;
@@ -195,7 +243,11 @@
       if(!user || !enabled)return;
       let result;
       try {result=await trialCall('status');} catch {result={ready:false};}
-      if(version===trialVersion)window.dispatchEvent(new CustomEvent('planet-trial',{detail:result}));
+      if(version===trialVersion){
+        const eligible=typeof result.eligible==='boolean'?result.eligible:null;
+        if(emailEligible!==eligible){emailEligible=eligible;redraw();}
+        window.dispatchEvent(new CustomEvent('planet-trial',{detail:result}));
+      }
     }
     if(enabled)window.PlanetTrial={run:trialCall,refresh:refreshTrial};
     function sessionChanged(session) {
@@ -206,6 +258,8 @@
       }
       clearTimeout(timer);
       user=next;
+      ++accountVersion;
+      emailEnabled=undefined;emailBusy=false;emailEligible=null;emailError='';
       if(user)loginDialog?.close();
       remote=null;pending=null;busy=false;last='';hadError=false;
       const entry=document.querySelector('[data-account-entry]');
@@ -215,7 +269,7 @@
       if(user)void refreshTrial();
       status=user?'正在检查云端设置…':'使用邮箱账号同步设置';
       redraw();
-      if(user)void pull();
+      if(user){void pull();void readEmailPreference();}
     }
     const button=(action,label)=>`<button type="button" class="secondary small" data-sync="${action}">${label}</button>`;
     function panel() {
@@ -230,7 +284,8 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
-        <p class="subtle">同步提醒、晨间语录和音效。对话和复盘仍保存在此设备。</p>`;
+        <p class="subtle">同步提醒、晨间语录和音效。对话和复盘仍保存在此设备。</p>
+        ${emailPreferencePanel()}`;
     }
     let rememberLogin=true;
     const authStorage={
@@ -285,11 +340,18 @@
         } catch { toast('无法连接登录服务，请稍后重试。'); }
         finally { form.elements.password.value=''; }
       });
+      document.addEventListener('change',event=>{
+        if(event.target.matches('[data-reminder-email]'))void setEmailPreference(event.target.checked);
+      });
       document.addEventListener('click',event=>{
         const op=event.target.closest('[data-sync]')?.dataset.sync;
         if(!op||!user)return;
         if(op==='adopt'&&remote&&!busy)adopt(remote);
         if(op==='push')void push();
+        if(op==='email-retry'){
+          void readEmailPreference();
+          void refreshTrial();
+        }
         if(op==='retry'){
           hadError=false;
           if(remote&&signature()!==last)void push();else void pull();
@@ -299,7 +361,7 @@
         });
       });
       window.addEventListener('focus',()=>{
-        if(user)void refreshTrial();
+        if(user){void refreshTrial();void readEmailPreference();}
         if(!user||pending||busy)return;
         if(hadError && remote && signature()!==last){hadError=false;void push();}
         else if(!remote || signature()===last)void pull();
