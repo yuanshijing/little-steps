@@ -202,7 +202,7 @@
       const detail=emailError || (emailBusy?'正在同步邮件提醒设置…':!checked&&emailEligible===false?'目前仅已验证的内测邮箱可开启。':
         emailEligible===null&&!checked?'正在检查邮件提醒是否可用。':'按已同步的定时提醒发送至登录邮箱，使用北京时间。');
       return `<div>
-        <label class="check"><input type="checkbox" data-reminder-email aria-describedby="email-reminder-help"${checked?' checked':''}${disabled?' disabled':''}> 接收定时提醒邮件</label>
+        <label><input type="checkbox" data-reminder-email aria-describedby="email-reminder-help"${checked?' checked':''}${disabled?' disabled':''}> 接收定时提醒邮件</label>
         <p id="email-reminder-help" class="subtle" role="status">${detail}</p>
         ${emailError||(!emailBusy&&emailEligible===null)?button('email-retry','重新检查邮件提醒'):''}
       </div>`;
