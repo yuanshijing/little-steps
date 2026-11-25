@@ -132,7 +132,7 @@
         ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
         <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
         ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}${btn('remindOff','关闭该环节提醒')}</div>${custom}` : ''}
-        ${modelOptions.length ? '<div class="controls">' + modelOptions.map(text => btn('modelOption', text, text)).join('') + '</div>' : ''}
+        ${modelOptions.length ? '<div class="controls">' + modelOptions.filter(row=>row.revision===v.active?.revision).map(row=>btn('modelOption',row.text,row.text)).join('') + '</div>' : ''}
         <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
         <div class="controls"><button class="primary">${trial ? '发给小星 · 试用' : '发给小星'}</button>${voice ? btn('voice','语音输入','v1-input') : ''}
         ${(!trial && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
@@ -527,6 +527,17 @@
         button.textContent = '连接并测试 DeepSeek';
       }
     }
+    async function guideFixed(state,v,guidance) {
+      if(!guidance || !modelEnabled && !api)return;
+      const {input,revision}=guidance;
+      try {
+        const value=await callModel('coach',input);
+        if(typeof value.reply!=='string' || getState()!==state || v.active?.revision!==revision)return;
+        V.message(v,value.reply,'coach',{reminderId:input.reminderId,at:Date.now()});
+        modelOptions=Array.isArray(value.quickReplies) ? value.quickReplies.map(text=>({text,revision})) : [];
+      } catch { /* Keep the current fixed branch response. */ }
+      finally {if(getState()===state){if(page()==='v1')paint();else save();}void refreshUsage();}
+    }
     async function reply(text, useModel) {
       const v = vNow();
       const result = V.free(getState(), text);
@@ -538,12 +549,12 @@
       try {
         const scene = v.active?.id ?? 'all';
         const memories = v.settings.memory ? v.memory.filter(m=>m.scene===scene || m.scene==='all').slice(-4) : [];
-        const value = await callModel('coach',{text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
+        const value = await callModel('coach',V.modelContext(getState(),text) ?? {text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
           schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories});
         if (typeof value.reply !== 'string') throw new Error();
         if (vNow() !== v || v.active?.revision !== current) return;
         fallback.text = value.reply;
-        modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies : [];
+        modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies.map(text=>({text,revision:current})) : [];
       } catch (error) { fallback.text = (trial ? error.message : '模型暂不可用') + '。以下是基础教练建议。\n' + fallback.text; }
       finally { if (page() === 'v1') paint(); else save(); void refreshUsage(); }
     }
@@ -619,6 +630,7 @@
           if (r?.award) reward(r.award);
           else if (r && !wasComplete && record?.completedAt != null) playCompletionSound();
           modelOptions=[];
+          if(r?.guidance)void guideFixed(state,v,r.guidance);
         }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
         if (name === 'remindOff' && v.settings.times[v.active?.id]) { v.settings.times[v.active.id].enabled=false; V.park(v,'主动跳过'); }

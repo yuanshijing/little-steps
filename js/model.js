@@ -154,9 +154,13 @@
     const parentDay = parent.repeat === 'once' ? parent.day : day;
     return parentDay > day || state.instances[parentDay + '/' + parent.id]?.status !== 'completed';
   }
+  function isLegacyWakeTask(task) {
+    return task?.title === '离开床铺并洗漱' && task.when === '09:00' &&
+      task.firstStep === '把双脚放到地上' && task.repeat === 'daily' && task.category === 'routine';
+  }
   function nextTask(state, day, after = null) {
     const list = schedule(state, day).filter(({ task, item }) =>
-      task.id !== after?.id && !outcomes.includes(item.status) && !blocked(state, task, day));
+      task.id !== after?.id && (!after || !isLegacyWakeTask(task)) && !outcomes.includes(item.status) && !blocked(state, task, day));
     return (after?.chain && list.find(({ task }) => task.chain === after.chain)) || list[0] || null;
   }
   function award(state, record, flag, value) {
@@ -258,7 +262,7 @@
   }
   return {
     KEY, STATUSES, outcomes, uid, dateKey, shiftDate, dueAt, timeOk, bounded, clean,
-    createState, migrate, read, write, event, upsertTask, occurs, schedule, openInstance,
+    createState, migrate, read, write, event, upsertTask, occurs, schedule, openInstance, isLegacyWakeTask,
     blocked, nextTask, transition, savePlan, beginRecovery, endRecovery, award,
   };
 });

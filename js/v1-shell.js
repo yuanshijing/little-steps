@@ -375,7 +375,7 @@
       }
     }
     if ((status === 'completed' || status === 'partial') && !P.outcomes.includes(result.previous) && day === P.dateKey()) {
-      const next = P.nextTask(state, day, task);
+      const next = window.PlanetV1.init(state).active ? null : P.nextTask(state, day, task);
       if (next) {
         const message = '接下来可以切换到「' + next.task.title + '」。先做这一步：' + C.firstStep(next.task);
         chat('ai', message);

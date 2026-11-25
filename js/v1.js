@@ -8,6 +8,7 @@
   const schedule = ['07:30', '09:00', '14:00', '16:00', '18:30', '20:00', '20:45', '22:45'];
   const work = ['am', 'pm', 'night'];
   const M = 60000;
+  const transitions = {wake:'am',am:'pm',pm:'dinner',dinner:'bath',bath:'night',night:'sleep'};
   const intervals = { wake: 3, rise: 2, wash: 10, start: 5, switch: 5, returning: 5, bedtime: 5, unanswered: 15 };
   const star = { wake: '晨光星', am: '行动星', pm: '行动星', night: '行动星', bath: '效率星', sleep: '休憩星', return: '回归星' };
   const customOptions = [
@@ -31,6 +32,10 @@
     backHold: ['如果你持续做了一小段，可以回来确认。', [['我已持续回到原任务', '这次回归有了实际进展。'], ['这次只回归了一会儿', '能回归已经值得记录。']]],
     afterDinner: ['晚饭后你现在在哪里？', [...data.afterDinner.options, ['我是在家吃饭', '可以直接准备洗澡。']]],
     homeCheck: ['你现在已经回来了吗？', [['已经回来了', '回来啦。我们准备洗澡。'], ['正在回家的路上', '约一个到家时间。'], ['还在散步', '你想什么时候再确认？'], ['临时有其他安排', '我们重新约一个时间。']]],
+    dinnerStart: ['晚饭这一步进展怎样？',[['已经吃完了','接下来你打算回家还是散步？'],['已经在吃了','安心吃饭，吃完再确认。'],['还没出发','先结束手头这一小步，把出门要带的东西拿上。']]],
+    dinnerWrap: ['现在可以收尾了吗？',[['已经收尾','保存进度，可以准备吃饭了。'],['还是收不了尾','先把未完成的下一步记一行，把当前进度保存下来。']]],
+    bathSwitch: ['现在能腾出手去洗澡吗？',[['现在可以去','带好换洗衣物，先开计时。'],['还是脱不开身','记下你被什么卡住，先找一个可以暂停的节点。']]],
+    lunch: ['午饭这一步进展怎么样？', [['已经吃完午饭','来确认下午的任务。'],['正在吃午饭','先安心吃饭。'],['还没吃午饭','保存上午的进度，准备去吃午饭。']]],
     bathTimer: ['先在下方选好模式，开启计时器，再开始洗浴。', [['已经全部完成', '来记录一下结果。'], ['还在做其他事', '可以约一个时间再提醒。']]],
     bathResult: ['洗澡和整理进行得怎么样？', data.bathResult.options],
     sleepBarrier: ['是什么让现在的收尾有点困难？', data.sleepBarrier.options],
@@ -97,7 +102,7 @@
   function planText(state, day, night = false) {
     const confirmed = state.plans[day]?.items;
     const rows = confirmed?.length ? confirmed : P.schedule(state, day).filter(({item, task}) =>
-      !P.outcomes.includes(item.status) && (!night || task.minutes <= 20))
+      !P.isLegacyWakeTask(task) && !P.outcomes.includes(item.status) && (!night || task.minutes <= 20))
       .map(({ task }) => ({ ...task, firstStep: task.firstStep || '打开相关材料' }));
     return rows.slice().sort((a, b) => (a.priority ?? 1) - (b.priority ?? 1)).slice(0, 3)
       .map(row => row.title + '（' + (['', '高', '普通', '低'][row.priority] || '重点') + '） · 第一步：' + row.firstStep).join('\n');
@@ -143,9 +148,9 @@
   }
   function reminderText(state,v,item) {
     const intro = isCustom(v, item.id) ? '我们来确认一下「' + title(v, item.id) + '」。现在做到哪一步了？'
-      : item.id === 'return' ? phases.recovery[0] : data[item.id].intro.split('\n复用')[0];
+      : item.id === 'return' ? phases.recovery[0] : data[item.id].intro;
     const quote = item.id === 'wake' ? chooseQuote(v, item.day)?.lines.join('\n') : '';
-    const list = ['wake', 'am', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
+    const list = ['wake', 'am', 'pm', 'night'].includes(item.id) ? planText(state, item.day, item.id === 'night') : '';
     return [intro, quote, list].filter(Boolean).join('\n\n');
   }
   function announceScheduled(v,item,now,queued = true) {
@@ -164,8 +169,9 @@
       due: now.getTime() + v.settings.intervals.unanswered * M, attempts: 0, revision: P.uid() };
     const alreadyAnnounced = source === 'schedule' && item.notifiedAt != null;
     if (source === 'schedule' && !alreadyAnnounced) item.notifiedAt = now.getTime();
-    message(v, reminderText(state,v,item), 'coach', {source:alreadyAnnounced ? 'queued' : source,reminderId:item.id,at:now.getTime()});
-    if (item.id === 'sleep') promptReview(v, 'daily', item.day, now);
+    v.active.initialPrompt = reminderText(state,v,item);
+    message(v, v.active.initialPrompt, 'coach', {source:alreadyAnnounced ? 'queued' : source,reminderId:item.id,at:now.getTime()});
+    if (item.id === 'sleep' && source === 'transition') promptReview(v, 'daily', item.day, now);
     event(v, 'reminder', now, { id: item.id, key: item.key, source });
     return true;
   }
@@ -235,9 +241,38 @@
     item.startedAt ??= now.getTime();
     grant(state, item, 1, now);
   }
-  function handoff(state, id, now) {
-    park(init(state), '未记录');
-    open(state, id, now, 'transition');
+  function handoff(state, now) {
+    const v = init(state);
+    const next = transitions[v.active?.id];
+    park(v, '已完成');
+    if (next) open(state, next, now, 'transition');
+  }
+  function fixedContext(state,v,a,trace) {
+    const workScene = [...work,'check'].includes(a.id);
+    const confirmed = (state.plans[a.day]?.items ?? []).filter(row=>row.title!=='离开床铺并洗漱');
+    const ongoing = workScene && P.schedule(state,a.day).find(({task,item})=>
+      !P.isLegacyWakeTask(task) && ['active','interrupted'].includes(item.status));
+    const actualTask = ongoing?.task?.title || (workScene && confirmed.length===1 ? confirmed[0].title : title(v,a.id));
+    const barrier = v.records[a.key]?.barrier;
+    const strategies = v.events.filter(row=>row.type==='return').slice(-12).map(row=>v.records[row.key])
+      .filter(row=>row?.strategy && (barrier && row.barrier===barrier || row.key?.includes('/'+a.id+'/')))
+      .slice(-4).map(row=>row.strategy);
+    return {text:trace.at(-1).selection,scene:a.id,reminderId:a.id,status:a.stage,actualTask,
+      fixedTurns:trace,userState:trace.at(-1).selection,
+      plan:confirmed.map(row=>[row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n'),
+      style:state.settings.style, strategies,
+      memories:v.settings.memory ? v.memory.filter(row=>[a.id,'all'].includes(row.scene)).slice(-4) : []};
+  }
+  function modelContext(state,text) {
+    const v=init(state);
+    const a=v.active;
+    if(!a?.fixedTrace?.length || !a.modelGuided)return null;
+    return {...fixedContext(state,v,a,a.fixedTrace),text,userState:text};
+  }
+  function needsGuidance(stage,index) {
+    const difficulty = {rise:[3],wash:[2],breakfast:[2],barrier:[0,1,2,3,4],begin:[1],
+      detour:[0,1,2,3,4,5],back:[2],bathResult:[2,3],sleepBarrier:[0,1,2,3,4,5],bedtime:[1],lunch:[2],wait:[1],dinnerStart:[2],dinnerWrap:[1],bathSwitch:[1]};
+    return difficulty[stage]?.includes(index);
   }
   function waitFor(v, resume, now) {
     go(v, 'wait', now, v.settings.intervals.switch, { resume });
@@ -275,7 +310,11 @@
     const choice = options(v)[index];
     if (!a || a.revision !== revision || !choice) return false;
     const item = v.records[a.key];
-    item.history.push({ at: now.getTime(), stage: a.stage, response: choice[0] });
+    const selectedStage = a.stage;
+    const question = selectedStage==='initial' ? a.initialPrompt ?? reminderText(state,v,item) :
+      selectedStage==='wait' ? '你先处理当前这一步。现在进展怎样？' : phases[selectedStage]?.[0] ?? '';
+    const trace = (a.fixedTrace ?? []).concat({stage:selectedStage,question,selection:choice[0],response:choice[1]}).slice(0,2);
+    item.history.push({ at: now.getTime(), stage: selectedStage, response: choice[0] });
     if (!item.completedAt) item.status = '准备执行';
     const before = v.rewardHistory.length;
     message(v, choice[0], 'you');
@@ -286,7 +325,7 @@
     const finishWake = (stage) => {
       startReward(state, item, now);
       if (!item.backInBed && now.getTime() <= item.planned + s.wakeLimit * M) grant(state, item, 2, now);
-      if (stage === 'done') handoff(state, 'am', now);
+      if (stage === 'done') handoff(state, now);
       else f(stage, stage === 'wash' ? s.intervals.wash : s.intervals.switch);
     };
     const finishBed = () => {
@@ -309,6 +348,7 @@
           else if (index === 1) f('begin', s.intervals.start);
           else if ((a.id === 'am' && index === 3) || index === 4 && a.id !== 'am' && a.id !== 'night') f('barrier', s.intervals.start);
           else if (a.id === 'night' && index === 4) park(v, '主动跳过');
+          else if (index === 3 && ['pm','night'].includes(a.id)) detour(v,item,now);
           else defer('initial');
         } else if (a.id === 'check') {
           if (index === 0) { taskCompleted(v, item, now); park(v, '已完成'); }
@@ -317,16 +357,23 @@
           else detour(v, item, now);
         } else if (a.id === 'dinner') {
           if (index === 0) { taskCompleted(v, item, now); f('afterDinner', s.intervals.switch); }
+          else if(index===2) f('dinnerStart',s.intervals.switch);
+          else if(index===3) f('dinnerWrap',s.intervals.switch);
           else defer('initial');
         } else if (a.id === 'bath') {
           if (index === 1) f('bathResult', s.intervals.switch);
           else if (index === 0 || index === 2) f('bathTimer', null);
+          else if (index===3) f('bathSwitch',s.intervals.switch);
           else defer('initial');
         } else if (index === 3) {
-          f('bedtime', null);
-          message(v, '如果手机已经放下，可以直接确认睡前准备；也可以跳过详细复盘。');
+          v.reviews[item.day] ??= { skipped: true };
+          finishReview(v,'daily/'+item.day);
+          finishBed();
         } else if (index === 4) f('sleepBarrier', s.intervals.bedtime);
-        else f('bedtime', s.intervals.bedtime);
+        else {
+          if(index===0)promptReview(v,'daily',item.day,now);
+          f('bedtime',s.intervals.bedtime);
+        }
         break;
       case 'rise':
         if (index === 2) finishWake('wash');
@@ -341,7 +388,7 @@
         f(index === 0 ? 'breakfast' : 'wash', index === 0 ? s.intervals.switch : s.intervals.wash);
         break;
       case 'breakfast':
-        if ([0, 3].includes(index)) handoff(state, 'am', now);
+        if ([0, 3].includes(index)) handoff(state, now);
         else f('breakfast', s.intervals.switch);
         break;
       case 'barrier':
@@ -360,18 +407,32 @@
           if (now.getTime() - item.startedAt < s.focusMin * M) { message(v, '持续时间还没到进阶标准，先安心专注。'); f('sustain', null); }
           else {
             if (item.startedAt <= item.planned + s.startLimit * M && !item.focusInterrupted) grant(state, item, 2, now);
-            if (a.id === 'night') park(v, '已完成');
-            else f('wrap', null);
+            f('wrap', null);
           }
         } else if (index === 1) f('sustain', null);
         else if (index === 2) { item.focusInterrupted = true; detour(v, item, now); }
-        else if (a.id === 'pm') handoff(state, 'dinner', now);
-        else { if (a.id === 'am') message(v, '上午收尾啦。现在可以保存进度，出门吃午餐。'); park(v, '已完成'); }
+        else if(a.id==='am') { message(v,'上午收尾啦。现在可以去吃午饭。'); f('lunch',s.intervals.switch); }
+        else handoff(state,now);
         break;
       case 'wrap':
         if (index === 1) defer('wrap');
-        else if (a.id === 'pm') handoff(state, 'dinner', now);
-        else park(v, '已完成');
+        else if(a.id==='am')f('lunch',s.intervals.switch);
+        else handoff(state,now);
+        break;
+      case 'dinnerStart':
+        if(index===0) { taskCompleted(v,item,now); f('afterDinner',s.intervals.switch); }
+        else if(index===1)defer('initial');
+        else f('dinnerStart',s.intervals.switch);
+        break;
+      case 'dinnerWrap':
+        f(index===0?'dinnerStart':'dinnerWrap',s.intervals.switch);
+        break;
+      case 'bathSwitch':
+        f(index===0?'bathTimer':'bathSwitch',index===0?null:s.intervals.switch);
+        break;
+      case 'lunch':
+        if(index===0)handoff(state,now);
+        else f('lunch',s.intervals.switch);
         break;
       case 'detour':
       case 'recovery':
@@ -395,7 +456,7 @@
       }
       case 'afterDinner':
       case 'homeCheck':
-        if (index === 0 || index === 4) handoff(state, 'bath', now);
+        if (index === 0 || index === 4) handoff(state, now);
         else defer('homeCheck');
         break;
       case 'bathTimer':
@@ -408,7 +469,7 @@
           startReward(state, item, now);
           if (timing?.key === item.key && timing.actual <= timing.target) grant(state, item, 2, now);
           const bedtime = P.dueAt(item.day, s.times.sleep.time);
-          if (bedtime - now.getTime() >= 30 * M) handoff(state, 'night', now);
+          if (bedtime - now.getTime() >= 30 * M) handoff(state, now);
           else park(v, '已完成');
         } else if (index === 3) { item.barrier = '洗澡中断'; defer('bathResult'); }
         else f('bathResult', s.intervals.switch);
@@ -430,7 +491,12 @@
         else defer(a.resume);
         break;
     }
-    return { award: v.rewardHistory.length > before ? v.rewardHistory.at(-1) : null };
+    const sameTask = v.active?.key===a.key && v.active.id===a.id;
+    if(sameTask)v.active.fixedTrace=trace;
+    const guidance = sameTask && ids.includes(a.id) && trace.length===2 && needsGuidance(selectedStage,index) && !a.modelGuided
+      ? {input:fixedContext(state,v,v.active,trace),revision:v.active.revision} : null;
+    if(guidance)v.active.modelGuided=true;
+    return {award:v.rewardHistory.length>before ? v.rewardHistory.at(-1) : null,guidance};
   }
   function setFollow(v, minutes, now = new Date()) {
     if (!v.active || v.active.id === 'wake' || v.active.stage !== 'wait') return false;
@@ -663,12 +729,20 @@
     const fallback = emotion ? (bedtime
       ? '听起来这件事让你很不好受。先把最挂念的一句话写下来，剩下的明天再看。'
       : '听起来你卡在一种很难受的感受里。试着写下刚才实际发生的一件事，先把它和对自己的评价分开。')
-      : a?.id === 'wake' ? '先把上半身坐起来，做得到就只做这一步。'
-        : '我记下了。先选一个现在做得到的动作，或者用下方选项确认状态。';
+      : ({
+          wake:'先把上半身坐起来，做得到就只做这一步。',
+          am:'先打开上午任务所需的一份材料。',
+          pm:'回到下午任务，把需要的材料摆到手边。',
+          check:'先打开原任务的页面，找到中断前的那一行。',
+          dinner:'先保存当前进度，再准备晚饭。',
+          bath:'确认洗澡或整理有哪一步还没做，就从那一步继续。',
+          night:'选一件今晚可以收尾的小事，先打开它的材料。',
+          sleep:'把未完成的下一步记一行，然后准备休息。',
+        })[a?.id] ?? '先选一个现在做得到的动作，或者用下方选项确认状态。';
     message(v, fallback);
     event(v, emotion ? 'emotion' : 'free_reply', now, { key: a?.key, source: '用户自述' });
     return 'fallback';
   }
-  return { ids, intervals, star, data, phases, init, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, reminderTimeOrder, title, record, message, open, options, choose, park,
+  return { ids, intervals, star, data, phases, init, modelContext, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, reminderTimeOrder, title, record, message, open, options, choose, park,
     tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, free, planText, catalog };
 });
