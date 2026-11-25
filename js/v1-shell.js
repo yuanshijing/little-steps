@@ -59,6 +59,9 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function render() {
+    const previousChat = byId('v1-chat');
+    const previousOffset = previousChat?.scrollTop ?? 0;
+    const readingHistory = previousChat && previousChat.scrollHeight - previousChat.clientHeight - previousOffset > 32;
     byId('starcount').textContent = state.stars;
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
@@ -76,7 +79,7 @@
     updateTimer();
     v1View.clock();
     const box = byId('v1-chat') ?? byId('chatbox');
-    if (box) box.scrollTop = box.scrollHeight;
+    if (box) box.scrollTop = box.id === 'v1-chat' && readingHistory ? previousOffset : box.scrollHeight;
   }
   function controls(task, item) {
     const data = taskData(task, item);

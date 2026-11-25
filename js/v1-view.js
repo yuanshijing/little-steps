@@ -120,7 +120,7 @@
         .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
         <p id="chat-usage" class="chat-usage">${usageLabel()}</p>
-        <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.slice(-35).map(row =>
+        <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.map(row =>
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
         ${v.queue.filter(row=>row.day===date() && v.records[row.day+'/'+row.id]?.notifiedAt != null).map(row=>
           `<div class="review-prompt"><strong>${esc(V.title(v,row.id))} · 待处理</strong>
@@ -331,8 +331,6 @@
     function paint() {
       const draft = document.getElementById('v1-input')?.value;
       render();
-      const chat = document.getElementById('v1-chat');
-      if (chat) chat.scrollTop = chat.scrollHeight;
       const field = document.getElementById('v1-input');
       if (field && draft) field.value = draft;
       clock();
