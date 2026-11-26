@@ -95,10 +95,12 @@ button:focus-visible { outline-color: #9a78df; }
 }
 [data-v1-form="tomorrow"] legend { padding: 0 5px; font-size: 15px; font-weight: 700; }
 .tomorrow-time label, [data-v1-form="tomorrow"] label { font-weight: 400; }
-.tomorrow-time { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 18px 0 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tomorrow-time { display: grid; justify-items: start; gap: 10px; margin: 18px 0 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .v1-card .tomorrow-time label { margin: 0; }
+.v1-card .tomorrow-time-field { display: flex; align-items: center; gap: 10px; }
+.v1-card .tomorrow-time-field .field { width: auto; margin: 0; }
 .v1-card .tomorrow-time .tomorrow-remind { display: inline-flex; align-items: center; gap: 6px; }
-.tomorrow-time p { flex-basis: 100%; margin: 0; }
+.tomorrow-time p { margin: 0; }
 .coach-style-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: 10px; margin-top: 12px; }
 .v1-card label.coach-style-choice { display: flex; align-items: start; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .coach-style-choice:has(input:checked) { background: var(--lav2); border-color: #ac9ce6; }
