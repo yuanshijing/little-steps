@@ -24,9 +24,12 @@
   inbox.id = 'supervision';
   inbox.setAttribute('aria-label', '计划任务提醒');
   home.after(inbox);
-  let state;
-  try { state = P.read(localStorage); }
-  catch { state = P.createState(); }
+  let accountId = null;
+  const storage = {
+    getItem: key=>localStorage.getItem(accountId && key===P.KEY ? key+'/'+accountId : key),
+    setItem: (key,value)=>localStorage.setItem(accountId && key===P.KEY ? key+'/'+accountId : key,value),
+  };
+  let state = P.read(storage);
   let page = 'v1';
   let starPeriod='day', starAnchor='';
   let editId = '';
@@ -47,12 +50,14 @@
     toastTimer = setTimeout(() => { node.style.display = 'none'; }, 4100);
   }
   function save() {
-    try { P.write(localStorage, state); }
-    catch { toast('浏览器保存失败，请到设置导出当前记录'); }
+    let saved=true;
+    try { P.write(storage, state); }
+    catch { saved=false;toast('浏览器保存失败，请到设置导出当前记录'); }
     settingsSync?.onSave();
+    return saved;
   }
   function chat(role, text) {
-    state.chat.push({ role, text });
+    state.chat.push({ role, text, at:Date.now(), syncId:P.uid() });
   }
   function go(next) {
     page = next;
@@ -448,6 +453,7 @@
     },
     export: exportData,
     reset: () => {
+      if(accountId)return toast('请先退出账号，再清除访客数据。');
       if (!confirm('确定清除当前浏览器保存的任务和记录吗？')) return;
       state = P.createState(); context = null; editId = ''; lastQuoteWeek = undefined; save(); go('v1');
     },
@@ -528,7 +534,19 @@
       }
     } catch (error) { toast(error.message); }
   });
+  function changeAccount(id) {
+    accountId=id;
+    state=P.read(storage);
+    context=null;editId='';lastQuoteWeek=undefined;modelPending=false;
+    render();
+  }
+  const refreshAccountView=()=>{
+    const focused=document.activeElement;
+    if(!home.contains(focused) || !focused.matches('input, textarea, select, [contenteditable]'))render();
+    else focused.addEventListener('blur',()=>setTimeout(render,0),{once:true});
+  };
   settingsSync = window.PlanetSettingsSync?.mount({state:()=>state,save,toast,storage:localStorage,config:window.PLANET_SYNC_CONFIG,
+    changeAccount,refreshAccountView,
     redraw:()=>{ const panel=byId('settings-sync-panel'); if(panel)panel.innerHTML=settingsSync.panel(); }}) ?? {
     panel:()=>'<p class="subtle">设置保存在当前浏览器。</p>',
     onSave(){},

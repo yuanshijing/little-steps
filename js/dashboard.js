@@ -191,5 +191,5 @@
       ${Object.keys(v.achievements).length ? '<h3>已解锁成就</h3><p>' + Object.keys(v.achievements).map(esc).join(' · ') + '</p>' : ''}</section>
       ${rewardChart(state,entries,period,anchor)}`;
   }
-  return { collection, rewardStatistics, reminders, reminderStatus, sky };
+  return { collection, pointsByDay, rewardStatistics, reminders, reminderStatus, sky };
 });

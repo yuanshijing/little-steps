@@ -88,7 +88,9 @@
   function event(v, type, now, payload = {}) {
     v.events.push({ type, at: now.getTime(), day: P.dateKey(now), ...payload });
   }
-  function message(v, text, role = 'coach', detail = {}) { v.messages.push({ role, text, ...detail }); }
+  function message(v, text, role = 'coach', detail = {}) {
+    v.messages.push({ role, text, at:Date.now(), syncId:P.uid(), ...detail });
+  }
   function planText(state, day, night = false, timeBudget = Infinity, scene) {
     const confirmed = state.plans[day]?.items;
     const rows = confirmed?.length ? confirmed : P.schedule(state, day).filter(({item, task}) =>

@@ -59,11 +59,20 @@
     return true;
   }
 
-  function mount({state,save,redraw,toast,config,storage}) {
+  function mount({state,save,redraw,toast,config,storage,changeAccount,refreshAccountView}) {
     const enabled = typeof config?.url==='string' && /^https:\/\/[a-z0-9]+\.supabase\.co\/?$/.test(config.url) &&
       /^sb_publishable_[A-Za-z0-9_-]+$/.test(config.key??'');
     let client,user,remote,pending,busy=false,last='',hadError=false,timer;
     let status=enabled?'正在读取登录状态…':'邮箱登录和云同步等待部署';
+    const data=window.PlanetAccountData?.mount({state,client:()=>client,storage,redraw,changed:()=>{
+      const saved=save();
+      refreshAccountView();
+      return saved;
+    }});
+    const hasLegacyData=()=>{
+      try {return Boolean(storage.getItem(P.KEY)) && JSON.stringify(window.PlanetAccountData.snapshot(P.read(storage)))!==
+        JSON.stringify(window.PlanetAccountData.snapshot(P.createState()));}catch{return false;}
+    };
     const signature = () => JSON.stringify(snapshot(state()));
     function cloudSignature(payload) {
       const draft=P.createState();
@@ -158,6 +167,7 @@
       }
     }
     function onSave() {
+      data?.onSave();
       if(!user || pending || busy || hadError || signature()===last) return;
       clearTimeout(timer);
       timer=setTimeout(()=>void push(),350);
@@ -272,11 +282,14 @@
         return;
       }
       clearTimeout(timer);
+      data?.changeAccount(null);
       user=next;
       ++accountVersion;
       emailEnabled=undefined;emailBusy=false;emailEligible=null;emailError='';
       if(user)loginDialog?.close();
       remote=null;pending=null;busy=false;last='';hadError=false;
+      changeAccount?.(user?.id??null);
+      data?.changeAccount(user?.id??null);
       const entry=document.querySelector('[data-account-entry]');
       if(entry)entry.textContent=user?.email||'邮箱登录';
       ++trialVersion;
@@ -299,7 +312,11 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
-        <p class="subtle">同步提醒、晨间语录和音效。对话和复盘仍保存在此设备。</p>
+        <p class="subtle">提醒、晨间语录和音效随账号同步。</p>
+        ${data?'<p class="subtle">开启后，对话、长期记忆、计划、任务记录、积分、星星和复盘会保存到此账号，并随登录同步。个人 API Key 和浏览器授权留在当前设备。</p>'+
+          '<p class="subtle" role="status">'+esc(data.status())+'</p>'+
+          '<div class="controls">'+(data.busy()?'':data.enabled()?button('data-sync','立即同步账号数据'):
+            button('data-enable','开启账号数据同步'))+(data.busy()||!hasLegacyData()?'':button('data-import','导入此浏览器的旧记录'))+'</div>':''}
         ${emailPreferencePanel()}`;
     }
     let rememberLogin=true;
@@ -375,6 +392,19 @@
         if(!op||!user)return;
         if(op==='adopt'&&remote&&!busy)adopt(remote);
         if(op==='push')void push();
+        if(op==='data-sync'||op==='data-enable')void data?.refresh(op==='data-enable');
+        if(op==='data-import' && data && hasLegacyData() &&
+          confirm('将此浏览器原有的任务、聊天、长期记忆和复盘合并至 '+user.email+'？请确认这些记录属于此账号。')){
+          const previous=P.read(storage);
+          if(pending==='first'&&!busy)apply(state(),snapshot(previous));
+          if(data.update(window.PlanetAccountData.snapshot(previous))){
+            try {
+              storage.removeItem(P.KEY);
+              toast('已合并到此账号的本机记录');
+              if(pending==='first')void push();
+            } catch {toast('已导入账号，旧记录仍保留在此浏览器');}
+          }
+        }
         if(op==='email-retry'){
           void readEmailPreference();
           void refreshTrial();
@@ -389,10 +419,12 @@
       });
       window.addEventListener('focus',()=>{
         if(user){void refreshTrial();void readEmailPreference();}
+        if(user)void data?.refresh();
         if(!user||pending||busy)return;
         if(hadError && remote && signature()!==last){hadError=false;void push();}
         else if(!remote || signature()===last)void pull();
       });
+      if(data)setInterval(()=>{if(user && !document.hidden && data.enabled())void data.refresh();},30000);
     }
     return {panel,onSave,openLogin};
   }
