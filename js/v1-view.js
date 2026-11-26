@@ -325,9 +325,9 @@
           ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}
           ${btn('clearTomorrow','移除重点 '+(i+1),String(i))}</fieldset>`).join('')}
           <div class="tomorrow-time">
-            <label class="tomorrow-remind"><input type="checkbox" name="nextDayRemind" data-tomorrow-remind ${remindPlan?'checked':''}> 提示整份明日重点</label>
-            ${input('nextDayTime','提示时间',state.settings.nextDayTime,'type="time" required'+(remindPlan?'':' disabled'))}
-            <p class="subtle">勾选后，次日网页运行时会在指定时间额外提示整份重点。各项计划时间仍单独生效。</p>
+            <label class="tomorrow-time-field">提示时间<input class="field" name="nextDayTime" type="time" value="${esc(state.settings.nextDayTime)}" required${remindPlan?'':' disabled'}></label>
+            <p class="subtle" id="tomorrow-remind-help">勾选后，次日网页运行时会在指定时间额外提示整份重点。各项计划时间仍单独生效。</p>
+            <label class="tomorrow-remind"><input type="checkbox" name="nextDayRemind" data-tomorrow-remind ${remindPlan?'checked':''} aria-describedby="tomorrow-remind-help"> 提示整份明日重点</label>
           </div>
           <button class="primary">保存明日重点</button></form>`) +
         '</div><div id="weekly-review">' +
