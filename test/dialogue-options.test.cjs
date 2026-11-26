@@ -417,9 +417,10 @@ test('the whole-plan switch leaves individual task reminders active',()=>{
 test('the obsolete bedtime confirmation is suppressed without suppressing other planned reminders',()=>{
   const state=P.createState(now(22));
   state.tasks=[];
-  P.upsertTask(state,{title:'睡前回复今天',when:'22:00'},now(22));
+  P.upsertTask(state,{title:'睡前回顾今天',when:'22:00'},now(22));
   P.upsertTask(state,{title:'睡前阅读',when:'22:00'},now(22));
   assert.equal(S.obsoleteBedtimeNotice('还有一步需要确认 · 睡前回复今天'),true);
+  assert.equal(S.obsoleteBedtimeNotice('还有一步需要确认 · 睡前回顾今天'),true);
   assert.equal(S.obsoleteBedtimeNotice('睡前阅读'),false);
   assert.match(S.tick(state,now(22)).title,/睡前阅读/);
   assert.equal(S.tick(state,now(22,1)),null);

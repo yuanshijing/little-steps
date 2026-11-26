@@ -5,7 +5,7 @@
   'use strict';
   const minute = 60000;
   function obsoleteBedtimeNotice(title) {
-    return /^(?:(?:还有一步需要确认|计划任务提醒|请确认状态|有空时看看这一件)[·：:–—-]?)?睡前回复(?:今天|今日)/.test(String(title??'').replace(/\s+/g,''));
+    return /^(?:(?:还有一步需要确认|计划任务提醒|到点确认一下|请确认状态|有空时看看这一件)[·：:–—-]?)?睡前(?:回复|回顾)(?:今天|今日)$/.test(String(title??'').replace(/\s+/g,''));
   }
   function addNotice(state, entry, now) {
     if (entry.taskId && ['scheduled', 'followup'].includes(entry.kind)) {
