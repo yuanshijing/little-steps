@@ -770,15 +770,24 @@
     "customHelp": {
       "question": "这个小步骤进展怎么样？",
       "options": [
-        {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@complete"},
-        {"id":"doing","label":"正在进行","reply":"先继续手头这一步。","next":"initial"},
-        {"id":"stuck","label":"还是没开始","reply":"想想「{task}」有哪一步可以再小一点。","next":"customHelp","guide":true}
+        {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@customComplete"},
+        {"id":"doing","label":"正在进行","reply":"先继续手头这一步。","next":"@customDoing"},
+        {"id":"stuck","label":"还是没开始","reply":"先试一个动作：{firstStep}","next":"customBarriers","guide":true}
+      ]
+    },
+    "customBarriers": {
+      "question":"是什么让这一步难开始？",
+      "options":[
+        {"id":"unclear","label":"不知道怎么做","reply":"先把你不确定的那一步写下来，接着试这个动作：{firstStep}","next":"@barrier:customHelp","guide":true},
+        {"id":"distracted","label":"被别的事打断","reply":"把手边的事记一行，腾出一分钟给「{task}」。","next":"@barrier:customHelp","guide":true},
+        {"id":"low_energy","label":"状态不太好","reply":"可以先喝口水，再决定做一个小动作还是暂停。","next":"@barrier:customHelp","guide":true}
       ]
     }
   },
   "customOptions": [
-    {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@complete"},
-    {"id":"doing","label":"正在进行","reply":"先继续手头这一步，方便时再回来确认。","next":"initial"},
-    {"id":"help","label":"还没开始，需要帮助","reply":"从「{task}」开始，先准备这件事需要的一样东西。","next":"customHelp"}
+    {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@customComplete"},
+    {"id":"doing","label":"正在进行","reply":"先继续手头这一步，方便时再回来确认。","next":"@customDoing"},
+    {"id":"help","label":"还没开始","reply":"现在只做这一步：{firstStep}","next":"customHelp"},
+    {"id":"difficulty","label":"遇到困难","reply":"我们先看看是什么让「{task}」难开始。","next":"customBarriers"}
   ]
 });

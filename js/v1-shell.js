@@ -13,20 +13,14 @@
   const card = (title, body) => `<section class="surface"><h2 class="section-title">${esc(title)}</h2>${body}</section>`;
   const notice = text => `<p class="notice">${esc(text)}</p>`;
   const headings = {
-    coach: '自定义任务教练', plan: '已有的自定义任务',
+    plan: '我的任务',
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
     recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星对话',
     v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '定时提醒',
     v1ideas: '灵感暂存',
   };
   const home = byId('view');
-  const inbox = document.createElement('section');
-  inbox.id = 'supervision';
-  inbox.setAttribute('aria-label', '计划任务提醒');
-  home.after(inbox);
-  let state;
-  try { state = P.read(localStorage); }
-  catch { state = P.createState(); }
+  let state = P.read(localStorage);
   let page = 'v1';
   let starPeriod='day', starAnchor='';
   let editId = '';
@@ -35,8 +29,6 @@
   let lastObservedDay = P.dateKey();
   let lastQuoteWeek;
   let toastTimer;
-  let modelAvailable = false;
-  let modelPending = false;
   let settingsSync;
 
   function toast(message) {
@@ -51,9 +43,6 @@
     catch { toast('浏览器保存失败，请到设置导出当前记录'); }
     settingsSync?.onSave();
   }
-  function chat(role, text) {
-    state.chat.push({ role, text });
-  }
   function go(next) {
     page = next;
     render();
@@ -66,8 +55,8 @@
     byId('starcount').textContent = state.stars;
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
-    const navPage = ({focus:'v1', coach:'v1', recover:'v1', growth:'v1review', review:'v1review',
-      v1ideas:'v1', settings:'v1settings', plan:'v1reminders'})[page] ?? page;
+    const navPage = ({focus:'v1', recover:'v1', growth:'v1review', review:'v1review',
+      v1ideas:'v1', settings:'v1settings'})[page] ?? page;
     document.querySelectorAll('#nav button').forEach(button => {
       const current = button.dataset.page === navPage;
       button.classList.toggle('active', current);
@@ -76,58 +65,60 @@
     });
     home.dataset.screen = page;
     home.innerHTML = views[page]();
-    renderInbox();
     updateTimer();
     v1View.clock();
     const box = byId('v1-chat') ?? byId('chatbox');
     if (box) box.scrollTop = box.id === 'v1-chat' && readingHistory ? previousOffset : box.scrollHeight;
   }
-  function controls(task, item) {
-    const data = taskData(task, item);
-    if (P.outcomes.includes(item.status)) return '';
-    if (P.blocked(state, task, item.day)) return '<p class="subtle">等待前置任务完成</p>';
-    return `<div class="controls">${item.status === 'active'
-      ? action('interrupt', '记录中断', data)
-      : action('start', item.status === 'interrupted' ? '我重新开始了' : '我开始了', data, 'primary')}
-      ${action('help', '给我一个最小行动', data)}
-      ${action('defer', '推迟 15 分钟', data)}
-      ${action('check', '完成', data + ' data-value="completed"')}</div>`;
-  }
-  function planList(items) {
-    return '<ol>' + items.map(row => `<li>${esc(row.when)} <strong>${esc(row.title)}</strong><br><span class="subtle">${esc(row.firstStep)}</span></li>`).join('') + '</ol>';
-  }
   function planView() {
-    const rows = P.schedule(state, selectedDay);
-    const editing = state.tasks.find(task => task.id === editId);
-    const t = editing ?? { title: '', day: selectedDay, when: '14:00', minutes: 5, repeat: 'once', priority: 2, steps: [] };
-    const dependencies = state.tasks.filter(row => !row.archived && row.id !== editing?.id);
-    const confirmed = state.plans[selectedDay]?.items ?? [];
-    return '<button type="button" class="secondary small page-back" data-act="page" data-target="v1reminders"><span aria-hidden="true">◂</span> 返回定时提醒</button>' +
-      (confirmed.length ? card('已确认的重点', planList(confirmed)) : '') +
-      card('按日查看计划', `<label for="plan-date">日期</label><input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">` +
-      (rows.length ? rows.map(({ task, item }) => `<article class="task ${item.status === 'completed' ? 'done' : ''}"><div class="task-body">
-        <div class="task-name">${esc(task.title)}</div><div class="task-info">${esc(task.when)} · ${task.minutes} 分钟 · 优先级 ${task.priority} · ${P.STATUSES[item.status]}
-        ${task.chain ? ' · ' + esc(task.chain) : ''}${item.deferUntil && item.status === 'deferred' ? ' · 延期至 ' + new Date(item.deferUntil).toLocaleString('zh-CN') : ''}</div>
-        ${task.firstStep ? `<p class="subtle">第一步 ${esc(task.firstStep)}</p>` : ''}
-        ${task.steps?.length ? '<ol>' + task.steps.map((step, i) => `<li><label><input type="checkbox" data-step="${i}" ${taskData(task, item)} ${item.doneSteps.includes(i) ? 'checked' : ''}> ${esc(step)}</label></li>`).join('') + '</ol>' : ''}
-        ${selectedDay <= P.dateKey() ? controls(task, item) + `<div class="controls"><label>打卡 <select class="field" data-outcome ${taskData(task, item)}>${option('', '选择结果', '')}
-        ${P.outcomes.map(status => option(status, P.STATUSES[status], item.status)).join('')}</select></label></div>` : ''}
-        <div class="controls">${action('edit', '编辑', taskData(task, item))}${action('archive', '移出计划', taskData(task, item))}</div>
-        </div></article>`).join('') : '<p>这天还没有计划。</p>')) +
-      card(editing ? '编辑任务或固定作息' : '添加任务或固定作息', `<form id="task-form">
-        <div class="setting"><label>任务名称 <input class="field" name="title" required maxlength="80" value="${esc(t.title)}"></label></div>
-        <div class="cols"><label>日期 <input class="field" type="date" name="day" required value="${esc(t.day)}"></label>
-        <label>提醒时间 <input class="field" type="time" name="when" required value="${esc(t.when)}"></label>
-        <label>预计分钟 <input class="field" type="number" name="minutes" min="1" max="720" required value="${t.minutes}"></label>
-        <label>频率 <select class="field" name="repeat">${[['once', '一次'], ['daily', '每天'], ['weekdays', '工作日'], ['weekly', '每周同一天']].map(([k, v]) => option(k, v, t.repeat)).join('')}</select></label>
-        <label>类型 <select class="field" name="category">${[['task', '任务'], ['routine', '固定作息'], ['transition', '活动衔接'], ['leisure', '娱乐结束提醒']].map(([k, v]) => option(k, v, t.category ?? 'task')).join('')}</select></label>
-        <label>优先级 <select class="field" name="priority">${[1, 2, 3].map((n, i) => option(String(n), ['高', '普通', '低'][i], String(t.priority))).join('')}</select></label>
-        <label>前置任务 <select class="field" name="dependsOn">${option('', '无', '')}${dependencies.map(row => option(row.id, row.title, t.dependsOn)).join('')}</select></label>
-        <label>行为链 <input class="field" name="chain" maxlength="35" placeholder="例：晨间例程" value="${esc(t.chain)}"></label></div>
-        <label>具体第一步 <input class="field" name="firstStep" maxlength="150" value="${esc(t.firstStep)}" placeholder="例：打开文档并找到上次写到的位置"></label>
-        <label>拆解步骤（每行一步） <textarea class="field" name="steps" rows="4" maxlength="1850">${esc((t.steps ?? []).join('\n'))}</textarea></label>
-        <div class="controls"><button class="primary" type="submit">保存任务</button>${editing ? action('cancel-edit', '取消编辑') : ''}</div>
-      </form>`);
+    const V=window.PlanetV1, v=V.init(state);
+    const editing=state.tasks.find(task=>task.id===editId && !task.archived);
+    const t=editing ?? {title:'',day:P.dateKey(),when:'09:00',repeat:'once',priority:2,steps:[],reminderEnabled:true};
+    const candidates=[...V.ids.map(id=>({id,title:V.title(v,id)})),
+      ...state.tasks.filter(task=>!task.archived && task.id!==editing?.id)];
+    const selectTask=(name,label,value)=>'<label>'+label+' <select name="'+name+'" class="field">'+option('', '无', value)+
+      candidates.map(task=>option(task.id,task.title,value)).join('')+'</select></label>';
+    const rows=state.tasks.filter(task=>!task.archived || P.occurs(task,selectedDay) ||
+      P.outcomes.includes(state.instances[selectedDay+'/'+task.id]?.status)).sort((a,b)=>a.when.localeCompare(b.when));
+    const frequencies={once:'仅一次',daily:'每天',weekdays:'工作日',weekly:'每周'};
+    const form=`<form id="task-form">
+      <div class="cols">
+        <label>任务名称 <input class="field" name="title" required maxlength="80" value="${esc(t.title)}"></label>
+        <label>计划日期 <input class="field" type="date" name="day" required value="${esc(t.day)}"></label>
+        <label>计划时间 <input class="field" type="time" name="when" required value="${esc(t.when)}"></label>
+        <label>重复频率 <select class="field" name="repeat">${Object.entries(frequencies).map(([key,label])=>option(key,label,t.repeat)).join('')}</select></label>
+      </div>
+      <label><input type="checkbox" name="reminderEnabled" ${t.reminderEnabled!==false?'checked':''}> 开启定时提醒</label>
+      <details><summary>高级设置</summary><div class="cols">
+        <label>预计时长（分钟） <input class="field" type="number" name="minutes" min="1" max="720" value="${esc(t.minutes)}"></label>
+        <label>优先级 <select class="field" name="priority">${[1,2,3].map((value,i)=>option(String(value),['高','普通','低'][i],String(t.priority))).join('')}</select></label>
+        ${selectTask('dependsOn','前置任务',t.dependsOn)}
+        ${selectTask('nextId','完成后衔接',t.nextId)}
+      </div><label><input type="checkbox" name="strictDependency" ${t.strictDependency?'checked':''}> 必须先完成前置任务</label>
+      <label>具体第一步 <input class="field" name="firstStep" maxlength="150" value="${esc(t.firstStep)}"></label>
+      <label>拆解步骤（每行一步） <textarea class="field" name="steps" rows="3" maxlength="1850">${esc((t.steps??[]).join('\n'))}</textarea></label></details>
+      <div class="controls"><button class="primary" type="submit">保存任务</button>${action('cancel-edit','取消')}</div>
+    </form>`;
+    return card('我的任务',`<div class="controls">${action('new-task','＋ 新增任务','', 'primary')}</div>
+      ${editId?'<h3>'+(editing?'编辑任务':'新增任务')+'</h3>'+form:''}`) +
+      card('任务与打卡', `<label for="plan-date">查看日期</label> <input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">`+
+        (rows.map(task=>{
+          const config=P.scheduleAt(task,selectedDay), scheduled=P.occurs(task,selectedDay);
+          const item=state.instances[selectedDay+'/'+task.id];
+          if(task.retiredExample && !item)return '';
+          const data=taskData(task,{day:selectedDay}), status=item&&P.outcomes.includes(item.status)?P.STATUSES[item.status]:
+            item?.status==='active'?'进行中':scheduled?'未记录':'当天无须执行';
+          const live=selectedDay===P.dateKey() && scheduled, canCheck=scheduled && selectedDay<=P.dateKey();
+          return `<article class="task"><div class="task-body"><div class="task-name">${esc(item?.title??config.title)}</div>
+            <div class="task-info">${esc(config.when)} · ${frequencies[config.repeat]} · ${status}${task.paused?' · 已暂停':''}${task.archived?' · 已移出':''}</div>
+            ${task.firstStep?'<p class="subtle">第一步 '+esc(task.firstStep)+'</p>':''}
+            ${live&&task.steps?.length ? '<ol>'+task.steps.map((step,i)=>`<li><label><input type="checkbox" data-step="${i}" ${data} ${item?.doneSteps?.includes(i)?'checked':''}> ${esc(step)}</label></li>`).join('')+'</ol>':''}
+            <div class="controls">${live&&!P.outcomes.includes(item?.status)?action('help','和小星聊聊',data):''}
+            ${canCheck?`<label>打卡 <select class="field" data-outcome ${data}>${option('','选择结果','')}
+              ${P.outcomes.map(value=>option(value,P.STATUSES[value],item?.status)).join('')}</select></label>`:''}
+            ${task.archived?'':action('edit','编辑',data)+action('task-toggle',task.paused?'恢复':'暂停',data)+action('archive','移出计划',data)}</div>
+          </div></article>`;
+        }).join('')||'<p>还没有任务。可以从一件小事开始。</p>'));
   }
   function contextTask() {
     if (context) {
@@ -135,17 +126,6 @@
       if (task) return { task, item: P.openInstance(state, task, context.day) };
     }
     return P.nextTask(state, P.dateKey());
-  }
-  function coachView() {
-    const target = contextTask();
-    return card('小星 · 行动教练', `<p class="subtle">${target ? '当前任务：' + esc(target.task.title) : '当前没有指定任务'}。规则教练会给一个能立即尝试的行动。</p>
-      <div class="chatbox" id="chatbox" aria-live="polite">${state.chat.slice(-35).map(row => `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}">${esc(row.text)}</div>`).join('')}</div>
-      <div class="chips">${Object.entries(C.quick).map(([key, label]) => action('quick', label, `data-value="${key}"`, 'soft small')).join('')}</div>
-      ${target ? controls(target.task, target.item) : ''}
-      <form id="chat-form"><div class="composer"><input class="field" name="message" autocomplete="off" required maxlength="500" aria-label="描述当前状态" placeholder="用一句话说说你现在的状态"><button class="primary" name="mode" value="local">发送</button></div>
-      <div id="model-send" ${modelAvailable ? '' : 'hidden'}><button name="mode" value="model" class="secondary" ${modelPending ? 'disabled' : ''}>把本条消息发给 OpenAI</button>
-      <p class="subtle">仅发送输入框中的文字和所选教练风格。请勿填写身份或健康隐私信息。</p></div></form>
-      ${notice('默认使用本地规则教练。可能的障碍会标为推测，任务结果以你的确认为准。')}`);
   }
   function recoverView() {
     const entry = state.recoveries.find(row => row.result === 'open');
@@ -216,29 +196,12 @@
       card('待验证的调整', proposals || '<p>目前记录不足，先观察已有计划。</p>') +
       card('成长奖励', `<p>⭐ ${state.stars} 颗星 · Lv.${Math.floor(state.stars / 100) + 1}</p><p class="subtle">实际启动、完成、部分完成和确认恢复可获得奖励。固定作息连续完成满三天有额外奖励。</p>`);
   }
-  const views = { coach: coachView, plan: planView, growth: growthView, settings: () => v1View.screen('settings'),
+  const views = { plan: planView, growth: growthView, settings: () => v1View.screen('settings'),
     recover: recoverView, focus: focusView, review: reviewView, v1: () => v1View.screen('chat'),
     v1review: () => v1View.screen('review'), v1stars: () => window.PlanetDashboard.sky(state,starPeriod,starAnchor || P.dateKey()),
     v1reminders: () => v1View.screen('schedule'), v1settings: () => v1View.screen('settings'), v1library: () => v1View.screen('library'),
     v1ideas: () => v1View.screen('ideas') };
 
-  function renderInbox() {
-    if (page !== 'plan') { inbox.innerHTML = ''; return; }
-    const pending = state.inbox.filter(row => !row.read && !S.obsoleteBedtimeNotice(row.title) && (!row.taskId || (() => {
-      const item = state.instances[row.taskDay + '/' + row.taskId];
-      return !item?.acknowledged;
-    })())).slice(-3).reverse();
-    inbox.innerHTML = pending.map(row => {
-      const task = state.tasks.find(t => t.id === row.taskId && !t.archived);
-      const item = task && state.instances[row.taskDay + '/' + row.taskId];
-      const data = item ? taskData(task, item) : '';
-      return card(row.title.replace(/^到点确认一下 · /,'计划任务提醒 · '), (row.list ? '<ul>' + row.list.map(line => `<li>${esc(line)}</li>`).join('') + '</ul>' :
-        `<p>${esc(row.prompt)}</p>`) + `<div class="controls">${item ? action('start', '我开始了', data, 'primary') +
-        action('help', '给我一个最小行动', data) + action('defer', '推迟 15 分钟', data) +
-        action('check', '跳过', data + ' data-value="skipped"') : ''}
-        ${action('ack', '已读', `data-id="${esc(row.id)}"`)}</div>`);
-    }).join('');
-  }
   function updateTimer() {
     const timer = state.timer;
     const el = byId('focus-display');
@@ -271,10 +234,11 @@
     }
     v1View.tick(now);
     v1View.clock();
-    const row = !window.PlanetV1.init(state).active && S.tick(state, now);
+    const row = S.tick(state, now, {wholePlanOnly:true});
     if (row) {
+      V.message(V.init(state), row.title+'\n'+row.list.join('\n'));
       save();
-      renderInbox();
+      if(page==='v1')v1View.refreshChat();
       toast(row.title);
       const timed = ['scheduled','handoff'].includes(row.kind);
       const played = timed && v1View.playReminderSound();
@@ -291,66 +255,10 @@
     }
     updateTimer();
   }
-  function help(message, target = contextTask()) {
-    const task = target?.task;
-    const preferred = state.memory.preferredStep;
-    const candidate = preferred && !(task?.firstStep || task?.steps?.length)
-      ? { ...task, firstStep: preferred } : task;
-    const reply = C.suggest(message, candidate, state.settings.style);
-    chat('you', message);
-    chat('ai', reply.text);
-    P.event(state, 'advice', new Date(), { ...reply });
-    save();
-    go('coach');
-  }
-  function refreshChatAfterModel(message) {
-    if (page !== 'coach') return;
-    const unsent = byId('chat-form')?.elements.message.value;
-    render();
-    if (unsent !== message && unsent) byId('chat-form').elements.message.value = unsent;
-  }
-  async function modelHelp(message, button) {
-    if (!modelAvailable || modelPending) return;
-    modelPending = true;
-    const snapshot = state;
-    const target = contextTask();
-    button.disabled = true;
-    try {
-      const response = await fetch('/api/coach', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ consent: true, message, style: state.settings.style }),
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) throw new Error('模型不可用');
-      const advice = await response.json();
-      if (typeof advice.action !== 'string' || advice.action.length > 150 || !advice.action.trim()) throw new Error('模型结果无效');
-      if (state !== snapshot) return;
-      const obstacle = C.obstacles.find(([key]) => key === advice.obstacle)?.[1];
-      chat('you', message);
-      chat('ai', '大模型建议：' + (obstacle ? '可能遇到了' + obstacle + '。' : '') + advice.action);
-      P.event(state, 'advice', new Date(), { taskId: target?.task.id, action: advice.action,
-        origin: 'model', evidence: obstacle ? 'inferred' : 'none', obstacle });
-      save();
-      refreshChatAfterModel(message);
-    } catch {
-      if (state !== snapshot) return;
-      const rule = C.suggest(message, target?.task, state.settings.style);
-      chat('you', message);
-      chat('ai', '模型暂不可用。本地建议：' + rule.text);
-      P.event(state, 'advice', new Date(), rule);
-      save();
-      refreshChatAfterModel(message);
-      if (page === 'coach') toast('网络模型未返回建议，已改用本地规则。');
-    } finally {
-      modelPending = false;
-      const control = byId('model-send')?.querySelector('button');
-      if (control) control.disabled = false;
-    }
-  }
   function markTask(task, day, kind, value) {
     if (!task) throw new Error('找不到任务');
     const status = kind === 'check' ? value : kind;
-    const result = P.transition(state, task, day, status);
+    const result = window.PlanetV1.checkTask(state,task,day,status);
     if (!result.changed) return;
     if (status === 'completed') v1View.playCompletionSound();
     if (status === 'defer' || P.outcomes.includes(status) || status === 'start') {
@@ -358,15 +266,7 @@
         if (row.taskId === task.id && row.taskDay === day) row.read = true;
       }
     }
-    if ((status === 'completed' || status === 'partial') && !P.outcomes.includes(result.previous) && day === P.dateKey()) {
-      const next = window.PlanetV1.init(state).active ? null : P.nextTask(state, day, task);
-      if (next) {
-        const message = '接下来可以切换到「' + next.task.title + '」。先做这一步：' + C.firstStep(next.task);
-        chat('ai', message);
-        S.addTransition(state, next, message, task.id);
-        toast(message);
-      } else toast('已记下' + P.STATUSES[status]);
-    } else toast(status === 'start' ? '实际启动已记录' : status === 'defer' ? '已推迟 15 分钟' : '已记下' + P.STATUSES[result.item.status]);
+    toast('已记下' + P.STATUSES[result.item.status]);
     save();
     render();
   }
@@ -399,19 +299,26 @@
       document.querySelector('[data-act="star-period"][aria-pressed="true"]')?.focus();
     },
     page: ({ target }) => { if (Object.hasOwn(views, target)) go(target); },
-    help: (data, task) => {
-      context = task ? { id: task.id, day: data.day } : null;
-      help('给我一个最小行动');
+    help: (_, task) => {
+      if(!task)return;
+      const V=window.PlanetV1;
+      V.open(state,V.reminderId(task));
+      save();go('v1');
     },
-    quick: ({ value }) => help(C.quick[value]),
+    'new-task': () => { editId='new'; go('plan'); byId('task-form').elements.title.focus(); },
     edit: ({ id }) => { editId = id; go('plan'); byId('task-form').scrollIntoView({ behavior: 'smooth' }); },
     'cancel-edit': () => { editId = ''; render(); },
     archive: (_, task) => {
       if (!task || !confirm('将任务从后续计划移除，已有打卡会保留。确定吗？')) return;
-      if (state.tasks.some(row => row.dependsOn === task.id && !row.archived)) throw new Error('请先调整依赖这项任务的前置设置');
-      task.archived = true;
+      P.setTaskState(task,'archive');
+      v1View.reconcileTasks();
       P.event(state, 'task_archived', new Date(), { taskId: task.id });
       save(); render();
+    },
+    'task-toggle': (_, task) => {
+      if(!task)return;
+      P.setTaskState(task,task.paused?'resume':'pause');
+      v1View.reconcileTasks();save();render();
     },
     interrupt: ({ day }, task) => {
       context = { id: task.id, day };
@@ -440,7 +347,6 @@
     },
     pause: () => { state.settings.pausedUntil = Date.now() + 3600000; save(); render(); toast('已暂停监督一小时'); },
     resume: () => { state.settings.pausedUntil = 0; save(); render(); loop(); },
-    ack: ({ id }) => { if (S.acknowledge(state, id)) { save(); renderInbox(); } },
     notification: async () => {
       if (!('Notification' in window) || !window.isSecureContext) return toast('当前页面不支持授权浏览器通知');
       const permission = await Notification.requestPermission();
@@ -454,10 +360,12 @@
   };
   const forms = {
     'task-form': data => {
-      const task = P.upsertTask(state, { ...data, id: editId || undefined });
+      const task = P.upsertTask(state, { ...data, id:editId==='new'?undefined:editId,
+        reminderEnabled:Boolean(data.reminderEnabled),strictDependency:Boolean(data.strictDependency),
+        sharedReminder:Boolean(data.reminderEnabled) });
+      v1View.reconcileTasks();
       selectedDay = task.day; editId = ''; save(); render(); toast('已保存任务');
     },
-    'chat-form': ({ message }) => { if (message.trim()) help(message.trim()); },
     'recovery-form': data => {
       const strategy = data.strategy.trim() || C.obstacles.find(([, text]) => text === data.reason)?.[3] ||
         C.firstStep(state.tasks.find(row => row.id === data.taskId));
@@ -492,10 +400,6 @@
     e.preventDefault();
     const data = Object.fromEntries(new FormData(form));
     try {
-      if (form.id === 'chat-form' && e.submitter?.value === 'model') {
-        if (data.message.trim()) void modelHelp(data.message.trim(), e.submitter);
-        return;
-      }
       if (form.dataset.proposal) {
         if (C.applyProposal(state, form.dataset.proposal, P.dateKey(), data.taskId)) {
           save(); render(); toast('已执行你确认的调整');
@@ -540,12 +444,5 @@
   setInterval(loop, 1000);
   window.addEventListener('focus', loop);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loop(); });
-  if (['localhost', '127.0.0.1'].includes(location.hostname)) {
-    fetch('/api/capabilities').then(response => response.ok ? response.json() : null).then(capabilities => {
-      modelAvailable = capabilities?.model === true;
-      const modelControl = byId('model-send');
-      if (modelControl) modelControl.hidden = !modelAvailable;
-    }).catch(() => {});
-  }
   loop();
 })();

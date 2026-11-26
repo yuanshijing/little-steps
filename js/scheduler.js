@@ -4,9 +4,7 @@
 })(globalThis, P => {
   'use strict';
   const minute = 60000;
-  function obsoleteBedtimeNotice(title) {
-    return /^(?:(?:还有一步需要确认|计划任务提醒|到点确认一下|请确认状态|有空时看看这一件)[·：:–—-]?)?睡前(?:回复|回顾)(?:今天|今日)$/.test(String(title??'').replace(/\s+/g,''));
-  }
+  const {obsoleteBedtimeNotice}=P;
   function addNotice(state, entry, now) {
     if (entry.taskId && ['scheduled', 'followup'].includes(entry.kind)) {
       for (const previous of state.inbox) {
@@ -26,16 +24,16 @@
       taskId: task.id, taskDay: item.day, fromTaskId,
     }, now);
   }
-  function tick(state, now = new Date()) {
+  function tick(state, now = new Date(), {wholePlanOnly=false}={}) {
     const settings = state.settings;
     const time = now.getTime();
     const day = P.dateKey(now);
     if (!settings.remind || settings.pausedUntil > time ||
         (state.timer?.mode === 'deep' && state.timer.endsAt > time)) return null;
-    const candidates = P.schedule(state, day);
+    const candidates = wholePlanOnly?[]:P.schedule(state, day);
     const previousDeferred = Object.values(state.instances).filter(item =>
       item.day < day && item.status === 'deferred' && P.dateKey(new Date(item.deferUntil)) === day);
-    for (const item of previousDeferred) {
+    for (const item of wholePlanOnly?[]:previousDeferred) {
       const task = state.tasks.find(row => row.id === item.taskId && !row.archived);
       if (task) candidates.push({ task, item });
     }

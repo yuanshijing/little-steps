@@ -33,13 +33,13 @@ for(const id of [...V.ids,'custom-test']) {
   const first=start(id);
   const rows=V.options(first.v);
   test(id+' — first level',()=>{
-    assert.equal(rows.length,id==='wake'||id.startsWith('custom-')?3:4);
+    assert.equal(rows.length,id==='wake'?3:4);
     assert.equal(new Set(rows.map(row=>row.id)).size,rows.length);
   });
   for(const one of rows) {
     test(id+' / '+one.id,()=>{
       const session=start(id),revision=session.v.active.revision;
-      assert.equal(pick(session,one.id).guidance,null);
+      assert.equal(pick(session,one.id).guidance,undefined);
       assert.equal(V.choose(session.state,revision,one.id,session.at),false);
       assertSafe(session);
       const next=session.v.active;
@@ -51,11 +51,12 @@ for(const id of [...V.ids,'custom-test']) {
         pick(x,one.id);
         const r=pick(x,choice.id);
         const hasSameThread=x.v.active?.id===id;
-        assert.equal(Boolean(r.guidance),Boolean(choice.guide&&hasSameThread),choice.id);
-        if(r.guidance){
-          assert.equal(r.guidance.input.fixedTurns.length,2);
-          assert.equal(r.guidance.input.fixedTurns[0].selection,one.label);
-          assert.equal(r.guidance.input.fixedTurns[1].selection,choice.label);
+        assert.equal(r.guidance,undefined);
+        if(hasSameThread){
+          const input=V.modelContext(x.state,'请给我一个建议');
+          assert.equal(input.fixedTurns.length,2);
+          assert.equal(input.fixedTurns[0].selection,one.label);
+          assert.equal(input.fixedTurns[1].selection,choice.label);
         }
         assertSafe(x);
       }
@@ -69,7 +70,7 @@ const scenes={
   afterDinner:'dinner',homeCheck:'dinner',dinnerStart:'dinner',dinnerEating:'dinner',
   dinnerReady:'dinner',dinnerBusy:'dinner',dinnerWrap:'dinner',bathBusy:'bath',bathSwitch:'bath',
   bathTimer:'bath',bathResult:'bath',sleepBarrier:'sleep',sleepInBed:'sleep',sleepReady:'sleep',
-  sleepBusy:'sleep',bedtime:'sleep',wait:'pm',customHelp:'custom-test',
+  sleepBusy:'sleep',bedtime:'sleep',wait:'pm',customHelp:'custom-test',customBarriers:'custom-test',
 };
 for(const [stage,phase] of Object.entries(V.phases)) {
   for(const choice of phase.options) {
@@ -101,7 +102,7 @@ test('wake: reward once, knows washed, no timer delay, health pause',()=>{
   assert.equal(x.state.stars,10);
   const y=start('wake');
   pick(y,'in_bed');
-  assert.ok(pick(y,'stuck').guidance);
+  assert.ok(pick(y,'stuck'));assert.match(y.v.messages.at(-1).text,/发送 AI 消息/);
   assert.equal(V.free(y.state,'身体不舒服',now(7,34)),'local');
   pick(y,'pause');
   assert.ok(y.state.settings.pausedUntil>now(7,34).getTime());
@@ -132,7 +133,7 @@ test('deviation: explicit return does not mark the original task complete',()=>{
   const x=start('check');
   x.state.plans[x.item.day]={items:[{title:'写论文',firstStep:'打开提纲'}]};
   pick(x,'distracted');
-  assert.match(pick(x,'switched').guidance.input.actualTask,/写论文.*打开提纲/);
+  pick(x,'switched');assert.match(V.modelContext(x.state,'').actualTask,/写论文.*打开提纲/);
   pick(x,'phone');
   pick(x,'returned',now(16,3));
   assert.equal(x.item.completedAt,undefined);
@@ -168,7 +169,7 @@ test('bedtime: review can be skipped, user may remain in bed, reward confirms re
   assert.equal(x.v.reviewPrompts,undefined);
   const saved={note:'已有复盘',summary:'保留'};
   x.v.reviews[x.item.day]=saved;
-  pick(x,'in_bed');assert.ok(pick(x,'stuck').guidance);
+  pick(x,'in_bed');assert.ok(pick(x,'stuck'));
   pick(x,'skip');
   assert.equal(x.v.reviews[x.item.day],saved);
   assert.ok(x.item.readyForRestAt);
@@ -215,7 +216,7 @@ test('confirmed work plans use the current time period, and completed plan rows 
   assert.match(x.v.active.initialPrompt,/下午提纲/);
   assert.doesNotMatch(x.v.active.initialPrompt,/上午文献|下午已完成|晚上阅读/);
   pick(x,'difficulty');
-  assert.match(pick(x,'unclear').guidance.input.actualTask,/下午提纲.*打开提纲/);
+  pick(x,'unclear');assert.match(V.modelContext(x.state,'').actualTask,/下午提纲.*打开提纲/);
 });
 test('agreed follow-up asks for status before resuming, and a disabled target stays closed',()=>{
   const x=start('dinner',now(19,15));
@@ -269,7 +270,7 @@ test('stats: legacy and newly recorded points are counted once and the chart is 
   P.event(x.state,'checkin',now(14,5),{taskId:'new',taskDay:day,status:'completed',pointsEarned:15});
   P.event(x.state,'checkin',now(14,10),{taskId:'new',taskDay:day,status:'completed',pointsEarned:0});
   assert.equal(D.rewardStatistics(x.state,'day',day).at(-1).points,18);
-  assert.equal(D.rewardStatistics(x.state,'day',day).at(-1).stars,0);
+  assert.equal(D.rewardStatistics(x.state,'day',day).at(-1).stars,1);
 });
 test('account settings still round-trip across devices with custom timing and options',()=>{
   const from=start('pm'),to=start('wake');
@@ -311,11 +312,15 @@ function mount(state,run,withModel=true,elements={},SpeechRecognition,navigator)
   const window={PlanetV1:V,Planet:P,PlanetCoach:C,PlanetDashboard:D,SpeechRecognition,navigator,addEventListener:(type,fn)=>events[type]=fn,
     PlanetPublicDeepSeek:{status:()=>({enabled:withModel}),run},confirm:()=>false};
   const document={addEventListener:(type,fn)=>(listen[type]??=[]).push(fn),getElementById:id=>elements[id]??null,querySelector:()=>null};
-  runInNewContext(readFileSync('js/v1-view.js','utf8'),{window,document,location:{protocol:'https:',hostname:'example.org'}});
-  const api=window.PlanetV1View.mount({state:()=>state,page:()=> 'v1',save(){},render(){},go(){},syncPanel:()=>'',toast(message){throw Error(message);}});
+  const FormData=class {constructor(form){return Object.entries(form.values??{});}};
+  const toasts=[];
+  runInNewContext(readFileSync('js/v1-view.js','utf8'),{window,document,FormData,location:{protocol:'https:',hostname:'example.org'}});
+  const api=window.PlanetV1View.mount({state:()=>state,page:()=> 'v1',save(){},render(){},go(){},syncPanel:()=>'',toast(message){toasts.push(message);}});
   events['planet-trial']({detail:{ready:false}});
   const dispatch=(type,event)=>listen[type].forEach(fn=>fn({...event,type}));
-  return {markup:(section='chat')=>api.screen(section),dispatch,click:(v1,value='')=>dispatch('click',{target:{closest:()=>({dataset:{v1,value}})}}),window};
+  return {markup:(section='chat')=>api.screen(section),dispatch,click:(v1,value='')=>dispatch('click',{target:{closest:()=>({dataset:{v1,value}})}}),window,toasts,
+    send:(message,mode='local')=>dispatch('submit',{target:{dataset:{v1Form:'chat'},values:{message},reset(){}},
+      preventDefault(){},submitter:{value:mode}})};
 }
 test('voice button is icon-only and starts without pre-focusing a field',()=>{
   const x=start('pm'), feedback={}, field={value:'原有草稿',maxLength:1500,focus(){this.focused=true;}};
@@ -359,7 +364,7 @@ test('coach styles are visible and task controls are on their own pages',()=>{
   assert.equal(x.state.settings.style,'gentle');
   assert.match(ui.markup('settings'),/data-coach-style value="gentle" checked/);
   assert.equal((ui.markup('schedule').match(/data-target="plan"/g)??[]).length,1);
-  assert.match(ui.markup('schedule'),/管理计划任务与作息/);
+  assert.match(ui.markup('schedule'),/打开我的任务/);
   assert.match(ui.markup('review'),/name="nextDayRemind" data-tomorrow-remind checked/);
   assert.match(ui.markup('review'),/保存明日重点/);
   assert.doesNotMatch(ui.markup('review'),/保存时间/);
@@ -518,54 +523,72 @@ test('guests get the login modal, can dismiss and open it again, and persisted s
   assert.equal(offline.shown.length,1);
   assert.match(offline.shown[0].innerHTML,/暂时无法加载登录服务/);
 });
-test('view: fixed vs dynamic options, consecutive context, no award from AI or text',async()=>{
-  const x=start('pm');
-  const calls=[];
-  const ui=mount(x.state,async(_,input)=>{
-    calls.push(input);
-    return {reply:'先把材料移到眼前。',quickReplies:['已经移好了','还是卡住了','要换一个方法','第四个']};
+test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
+  const x=start('pm'),calls=[];
+  const ui=mount(x.state,async(route,input)=>{
+    calls.push({route,input});
+    return {reply:'先把材料移到眼前。',quickReplies:['不会渲染的选项']};
   });
-  const button=id=>ui.click('choice',x.v.active.revision+'/'+id);
-  button('difficulty');
+  ui.click('choice',x.v.active.revision+'/difficulty');
+  ui.click('choice',x.v.active.revision+'/unclear');
+  ui.send('这次先用基础回复');
+  await wait();
   assert.equal(calls.length,0);
-  button('unclear');
+  assert.match(ui.markup(),/data-v1="choice"/);
+  assert.match(ui.markup(),/基础监督不消耗 Token/);
+  ui.send('请看看怎么打开材料','model');
   await wait();
   assert.equal(calls.length,1);
-  const html=ui.markup();
-  assert.match(html,/<summary>更多操作<\/summary>/);
-  assert.equal((html.match(/data-v1="modelOption"/g)??[]).length,3);
-  assert.doesNotMatch(html,/data-v1="choice"/);
-  await ui.click('modelOption','0');
+  assert.equal(calls[0].route,'coach');
+  assert.equal(calls[0].input.fixedTurns.length,2);
+  assert.match(ui.markup(),/先把材料移到眼前/);
+  assert.doesNotMatch(ui.markup(),/不会渲染的选项|data-v1="modelOption"/);
+  assert.match(ui.markup(),/data-v1="choice"/);
+  ui.send('如何接着做','model');
   await wait();
   assert.equal(calls.length,2);
-  assert.ok(calls[1].recent.some(row=>row.text==='先把材料移到眼前。'));
+  assert.ok(calls[1].input.recent.some(row=>row.text==='先把材料移到眼前。'));
   assert.equal(x.state.stars,0);
-  ui.click('fixedOptions');
-  assert.match(ui.markup(),/data-v1="choice"/);
-  await ui.click('remindOff');
+  ui.click('remindOff');
   assert.equal(x.v.settings.times.pm.enabled,true);
   ui.window.confirm=()=>true;
-  await ui.click('remindOff');
+  ui.click('remindOff');
   assert.equal(x.v.settings.times.pm.enabled,false);
-  assert.equal(x.item.status,'未记录');
 });
-test('view: no config, failed model, and stale reply stay in the correct fixed scene',async()=>{
+
+test('view: unavailable model leaves fixed options on screen, stale reply stays out of new scene',async()=>{
   for(const enabled of [false,true]){
-    const x=start('bath'),ui=mount(x.state,async()=>{throw Error('timeout');},enabled);
-    const btn=id=>ui.click('choice',x.v.active.revision+'/'+id);
-    btn('busy');btn('busy');await wait();
+    const x=start('bath');let calls=0;
+    const ui=mount(x.state,async()=>{calls++;throw Error('timeout');},enabled);
+    ui.click('choice',x.v.active.revision+'/busy');
+    ui.send('洗澡前需要先做什么','model');
+    await wait();
+    assert.equal(calls,enabled?1:0);
     assert.match(ui.markup(),/data-v1="choice"/);
     assert.doesNotMatch(ui.markup(),/data-v1="modelOption"/);
   }
   const x=start('pm');
   let complete;
   const ui=mount(x.state,()=>new Promise(resolve=>complete=resolve));
-  ui.click('choice',x.v.active.revision+'/difficulty');
-  ui.click('choice',x.v.active.revision+'/unclear');
+  ui.send('我还在准备','model');
   V.open(x.state,'bath',now(20));
   complete({reply:'过期回复',quickReplies:['过期选项']});
   await wait();
   assert.doesNotMatch(ui.markup(),/过期回复|过期选项/);
+});
+test('view: deep reviews request a model only after the explicit action',async()=>{
+  const x=start('pm'),calls=[];
+  const ui=mount(x.state,async(route,input)=>{
+    calls.push({route,input});
+    return {summary:'本周记录的进展。'};
+  });
+  ui.markup('review');ui.markup('review');
+  assert.equal(calls.length,0);
+  ui.click('generateReview','weekly');
+  await wait();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].route,'review');
+  assert.ok(Object.values(x.v.reviewSummaries).some(row=>row.text==='本周记录的进展。'));
 });
 test('model paths retain matching prompts and sanitize continuous context',async()=>{
   const trial=readFileSync('supabase/functions/trial-coach/index.ts','utf8');
@@ -573,7 +596,7 @@ test('model paths retain matching prompts and sanitize continuous context',async
   const line=(src,key)=>src.split('\n').find(s=>s.includes('const '+key+' ='));
   for(const k of ['SYSTEM','REVIEW_SYSTEM'])assert.equal(line(trial,k),line(personal,k));
   let handle,fromTrial,fromPersonal;
-  const fakeReply={reply:'测试',quickReplies:[]};
+  const fakeReply={reply:'测试',quickReplies:['旧模型返回的选项']};
   const completion=Response.json({usage:{total_tokens:1},choices:[{message:{content:JSON.stringify(fakeReply)}}]});
   const auth={id:'test-only',email:'fixture@example.test',email_confirmed_at:'2026-11-26'};
   const env={SUPABASE_URL:'https://fixture.test',DEEPSEEK_API_KEY:'fixture'};
@@ -591,9 +614,12 @@ test('model paths retain matching prompts and sanitize continuous context',async
   const window={Planet:P};
   runInNewContext(personal,{window,fetch:async(_,o)=>{fromPersonal=context(o.body);return completion.clone();},AbortSignal});
   await window.PlanetPublicDeepSeek.connect('sk-fixture-123456');
-  await window.PlanetPublicDeepSeek.run('coach',input);
+  const result=await window.PlanetPublicDeepSeek.run('coach',input);
+  assert.equal(result.quickReplies.length,0);
   const req=new Request('https://fixture.test',{method:'POST',headers:{Authorization:'Bearer fixture'},body:JSON.stringify({route:'coach',input})});
-  assert.equal((await handle(req)).status,200);
+  const reply=await handle(req);
+  assert.equal(reply.status,200);
+  assert.deepEqual((await reply.json()).quickReplies,[]);
   assert.deepEqual(fromTrial,fromPersonal);
   assert.equal(fromTrial.reminderId,'custom-test');
   assert.equal(fromTrial.recent.length,8);

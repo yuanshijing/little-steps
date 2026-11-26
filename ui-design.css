@@ -101,6 +101,12 @@ button:focus-visible { outline-color: #9a78df; }
 .v1-card .tomorrow-time-field .field { width: auto; margin: 0; }
 .v1-card .tomorrow-time .tomorrow-remind { display: inline-flex; align-items: center; gap: 6px; }
 .tomorrow-time p { margin: 0; }
+#task-form { display: grid; gap: 14px; }
+#task-form .cols { gap: 12px; }
+#task-form label { display: block; }
+#task-form .field { margin-top: 4px; }
+#task-form details > summary { cursor: pointer; margin-bottom: 10px; }
+#task-form details > label { margin-top: 10px; }
 .coach-style-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: 10px; margin-top: 12px; }
 .v1-card label.coach-style-choice { display: flex; align-items: start; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .coach-style-choice:has(input:checked) { background: var(--lav2); border-color: #ac9ce6; }

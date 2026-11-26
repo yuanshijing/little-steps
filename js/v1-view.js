@@ -30,7 +30,7 @@
     const publicModel = !api && ['https:','file:'].includes(location.protocol) ? window.PlanetPublicDeepSeek : null;
     let day = date();
     let lastReview = '';
-    let modelChat = null, modelRequest = 0;
+    let modelSending = false;
     let speechSession=null;
     const speechFeedback=new Map();
     let micPermission;
@@ -56,7 +56,6 @@
     });
     let todayTokens;
     let reviewPending = '';
-    let draftSequence = 0;
     let audio;
     const remindersAudible = () => vNow().settings.reminderSound !== false;
     async function armAudio() {
@@ -127,9 +126,8 @@
     }
     function chatPage(v) {
       const a = v.active;
-      const dynamic = modelChat?.v === v && modelChat.revision === a?.revision ? modelChat : null;
       const fixed = a ? V.options(v).map(({id,label}) => btn('choice',label,a.revision+'/'+id)).join('') : '';
-      const controls = dynamic ? dynamic.options.map((label,i)=>btn('modelOption',label,String(i))).join('') : fixed;
+      const controls = fixed;
       const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : '';
       const custom = a?.stage === 'wait' && a.id!=='wake' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = (a?.id === 'bath' && a.stage === 'bathTimer') || v.timer ? timerView(v) : '';
@@ -147,20 +145,19 @@
         <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview',row.kind==='daily'?'开始简短复盘':'开始每周复盘',key,true) : ''}
         ${row.pending ? btn('dismissReview',row.kind==='daily'?'今晚跳过':'稍后再看',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
         ${a ? `<p><b>${esc(V.title(v,a.id))}</b> <span class="subtle">${esc(due)}</span></p>` : ''}
-        ${controls ? (a?.stage==='sustain' && !dynamic
+        ${controls ? (a?.stage==='sustain'
           ? `<details><summary>确认专注进展</summary><div class="controls">${controls}</div></details>`
-          : `${a && a.stage!=='initial' && !dynamic && !a.prompt ? '<p>'+esc(V.phases[a.stage]?.question ?? '')+'</p>' : ''}
+          : `${a && a.stage!=='initial' && !a.prompt ? '<p>'+esc(V.phases[a.stage]?.question ?? '')+'</p>' : ''}
             <div class="controls">${controls}</div>`) : ''}
         ${a ? `<details${a.stage==='wait'?' open':''}><summary>更多操作</summary><div class="controls">
-          ${dynamic ? btn('fixedOptions','使用状态选项') : ''}
           ${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认')}
           ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}
           ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
           ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>` : ''}
         <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
-        <div class="controls"><button class="primary">${usingTrial() ? '发给小星 · 试用' : '发给小星'}</button>${voiceButton('v1-input')}
-        ${(!usingTrial() && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
-        ${(api || modelEnabled) ? '<p class="subtle">使用模型会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
+        <div class="controls"><button name="mode" value="local" class="primary">基础回复</button>${voiceButton('v1-input')}
+        <button name="mode" value="model" class="secondary" ${!modelEnabled||modelSending?'disabled':''}>发送 AI 消息</button></div></form>
+        <p class="subtle">基础监督不消耗 Token。发送 AI 消息会消耗 Token，并将本条消息及相关任务、对话、计划和允许检索的记忆发送给 DeepSeek。</p>
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
@@ -177,23 +174,19 @@
     }
     function schedulePage(v) {
       const state = getState();
-      const removed = V.allReminderIds(v).filter(id => v.settings.times[id].removed);
-      return card('固定提醒和自定义任务', `<form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
-        <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend>
-        <div id="reminder-drafts"></div>${btn('addReminder','＋ 添加一项')}<p class="subtle">可连续添加多项。最后点「保存提醒」统一生效。</p></fieldset>
+      const removed = V.ids.filter(id => v.settings.times[id].removed);
+      return card('定时提醒', `<form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
         ${removed.length ? `<details class="reminder-details"><summary>已移除的提醒</summary>${removed.map(id=>`<label><input type="checkbox" name="restore_${esc(id)}"> 恢复${esc(V.title(v,id))}</label>`).join('')}</details>` : ''}
         <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
         <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
-        ${number('follow','计划任务跟进间隔（分钟）',state.settings.follow,1,60)}
-        ${number('max','计划任务最多追加提醒',state.settings.max,0,3)}
         ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div></details>
         <details class="reminder-details"><summary>每周复盘提醒</summary><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
           `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div></details>
         <label><input type="checkbox" name="remind" ${state.settings.remind ? 'checked' : ''}> 启用自动提醒</label>
         <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>
         <div class="reminder-plan-link">
-          <p class="subtle">每天同一时间提醒，用上面的「新增每天提醒的任务」。只在指定日期或工作日做、需要前置任务或拆步骤，用下面的「计划任务与作息」。同一件事填一处即可。</p>
-          <button type="button" class="secondary small" data-act="page" data-target="plan">管理计划任务与作息</button>
+          <p class="subtle">在「我的任务」设置自定义任务的计划日期、重复频率和提醒。</p>
+          <button type="button" class="secondary small" data-act="page" data-target="plan">打开我的任务</button>
         </div>`);
     }
     function settingsPage(v) {
@@ -227,7 +220,7 @@
       const stats = kind === 'weekly' ? V.weekly(v,reviewDay) : null;
       const cases = stats?.cases ?? v.events.filter(row=>row.type==='detour' && row.day===reviewDay);
       return {kind,day:reviewDay,note:note ?? (kind === 'daily' ? v.reviews[reviewDay]?.note : v.weekNotes?.[reviewDay]) ?? '',
-        records:stats ? stats.stats.map(row=>V.title(v,row.id) + '：完成 ' + row.completed + '，未完成 ' + row.incomplete +
+        records:stats ? stats.stats.map(row=>V.title(v,row.id) + '：完成 ' + row.completed + '，部分完成 ' + row.partial + '，未完成 ' + row.incomplete +
           '，跳过 ' + row.skipped + '，未记录 ' + row.missing) : V.dailyText(v,reviewDay).split('\n'),
         cases:cases.slice(-6).map(row=>[row.day,row.obstacle,row.strategy,row.outcome].filter(Boolean).join(' · '))};
     }
@@ -333,7 +326,7 @@
         '</div><div id="weekly-review">' +
         card('每周复盘 · 最近七天', `${reviewSummary(v,'weekly',day)}${v.weekNotes?.[day] ? '<p><strong>你在对话中补充</strong> · '+esc(v.weekNotes[day])+'</p>' : ''}
         <dl class="weekly-metrics">${timingMetrics.map(([label,value])=>`<div><dt>${label}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>
-        <h3 class="weekly-records-heading">任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><span class="weekly-record-title">${esc(V.title(v,s.id))}</span><span class="weekly-record-stats">普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
+        <h3 class="weekly-records-heading">任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><span class="weekly-record-title">${esc(V.title(v,s.id))}</span><span class="weekly-record-stats">普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 部分完成 ${s.partial} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 无须执行 ${s.notScheduled} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
         <div class="weekly-detail-grid">
         ${reviewBlock('代表性案例',report.cases.slice(-4).map(e => `<div class="weekly-case"><p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}</p>
         ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</div>`).join('') || '<p class="subtle">暂无案例</p>')}
@@ -411,59 +404,38 @@
     function selectTab(next) { go(routes[next]); }
     function configureSchedule(data) {
       const v = vNow(), s = v.settings;
-      const ids = V.reminderIds(v).filter(id => !data['remove_'+id]);
+      const ids = V.ids.filter(id => !s.times[id].removed && !data['remove_'+id]);
       const rescheduled = new Set(ids.filter(id=>s.times[id].time!==data['time_'+id]));
-      const drafts = Object.keys(data).filter(key=>/^new_title_\d+$/.test(key)).map(key=>({
-        title:P.clean(data[key],60),time:data[key.replace('title','time')],
-      }));
-      const error = ids.some(id => !P.timeOk(data['time_'+id])) ? '请填写有效提醒时间'
-        : ids.some(id => V.isCustom(v,id) && !P.clean(data['title_'+id],60)) ? '请填写自定义任务名称'
-        : drafts.some(row=>!row.title || !P.timeOk(row.time)) ? '新增的每项任务都需要名称和提醒时间'
-        : '';
-      if (error) { toast(error); return false; }
+      if(ids.some(id=>!P.timeOk(data['time_'+id]))){toast('请填写有效提醒时间');return false;}
       for (const id of ids) {
         const time = data['time_'+id];
         const enabled = Boolean(data['enabled_'+id]);
         const setting = s.times[id];
         if (setting.enabled && !enabled && v.active?.id === id) V.park(v,'主动跳过');
-        Object.assign(setting,{time,enabled});
-        if (V.isCustom(v,id)) setting.title = P.clean(data['title_'+id],60);
+        V.setFixedReminder(v,id,{time,enabled});
       }
-      for (const id of V.allReminderIds(v)) {
+      for (const id of V.ids) {
         if (data['remove_'+id]) {
-          Object.assign(s.times[id],{removed:true,enabled:false});
+          V.setFixedReminder(v,id,{removed:true,enabled:false});
           if (v.active?.id === id) V.park(v,'未记录');
         } else if (data['restore_'+id] && s.times[id].removed) {
-          Object.assign(s.times[id],{removed:false,enabled:true});
+          V.setFixedReminder(v,id,{removed:false,enabled:true});
         }
       }
       v.queue = v.queue.filter(row=>s.times[row.id]?.enabled && (row.source!=='schedule' || !rescheduled.has(row.id)));
       for (const id of rescheduled) {
         const record = v.records[date()+'/'+id];
         if (record?.status === '待执行') {
-          delete record.notifiedAt;
           record.planned = P.dueAt(date(),s.times[id].time);
         }
       }
-      for (const row of drafts) s.times['custom-'+P.uid()] = {...row,enabled:true,addedDay:date()};
       for (const key of Object.keys(values)) s.intervals[key] = P.bounded(data['interval_'+key],1,120,s.intervals[key]);
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
       if (P.timeOk(data.wrap_am) && P.timeOk(data.wrap_pm)) s.wrapTimes = {am:data.wrap_am,pm:data.wrap_pm};
       const settings=getState().settings;
-      settings.follow=P.bounded(data.follow,1,60,settings.follow);
-      settings.max=P.bounded(data.max,0,3,settings.max);
       settings.remind = Boolean(data.remind);
-      toast(drafts.length ? '已新增 ' + drafts.length + ' 项提醒' : '提醒设置已保存');
-    }
-    function addReminderDraft() {
-      const container = document.getElementById('reminder-drafts');
-      const index = ++draftSequence;
-      container.insertAdjacentHTML('beforeend', `<div class="reminder-add-fields" data-draft-reminder>
-        ${input('new_title_'+index,'任务名称','','required maxlength="60" placeholder="例如：出门散步"')}
-        ${input('new_time_'+index,'提醒时间','','type="time" required')}
-        <button type="button" class="reminder-minus" data-v1="removeReminder" aria-label="移除此新增任务">−</button></div>`);
-      container.lastElementChild.querySelector('input').focus();
+      toast('提醒设置已保存');
     }
     function removeReminderRow(button) {
       const draft = button.closest('[data-draft-reminder]');
@@ -697,43 +669,32 @@
         button.textContent = '连接并测试 DeepSeek';
       }
     }
-    function clearModelChat() {
-      modelChat=null;
-      modelRequest++;
-    }
-    async function showModel(state,v,input,revision,fallback) {
-      const request=++modelRequest;
-      const current=()=>getState()===state && v.active?.revision===revision && modelRequest===request;
+    async function reply(text,useModel) {
+      const state=getState(),v=vNow();
+      if(!useModel || !modelEnabled){
+        if(useModel)toast('AI 暂不可用，可以继续使用基础监督。');
+        V.free(state,text);
+        paint();
+        return;
+      }
+      if(modelSending || !text.trim())return;
+      if(V.safetyReply(state,text))return paint();
+      const input=V.modelContext(state,text);
+      const thread=v.active?.thread, detail={thread,reminderId:input.reminderId};
+      V.message(v,text.trim(),'you',detail);
+      modelSending=true;
+      paint();
       try {
         const value=await callModel('coach',input);
         if(typeof value.reply!=='string' || !value.reply.trim())throw Error('无可用回复');
-        if(!current())return;
-        const detail={thread:v.active?.thread,reminderId:input.reminderId,at:Date.now()};
-        if(fallback)fallback.text=value.reply;
-        else V.message(v,value.reply,'coach',detail);
-        const options=Array.isArray(value.quickReplies) ? [...new Set(value.quickReplies
-          .filter(text=>typeof text==='string' && text.trim() && text.length<=50).map(text=>text.trim()))].slice(0,3):[];
-        modelChat={v,revision,options};
+        if(getState()===state && v.active?.thread===thread)V.message(v,value.reply,'coach',detail);
       } catch {
-        if(current())modelChat=null;
+        if(getState()===state)toast('AI 暂未回复，可以继续使用下方的基础状态选项。');
       } finally {
-        if(current()){if(page()==='v1')paint();else save();}
+        modelSending=false;
+        if(getState()===state){if(page()==='v1')paint();else save();}
         void refreshUsage();
       }
-    }
-    function guideFixed(state,v,guidance) {
-      if(guidance && (modelEnabled || api))void showModel(state,v,guidance.input,guidance.revision);
-    }
-    async function reply(text,useModel) {
-      const state=getState(),v=vNow();
-      clearModelChat();
-      const result=V.free(state,text);
-      if(result!=='fallback' || !useModel || (!api && !modelEnabled))return;
-      if(v.active && (v.active.fixedTrace?.length ?? 0)<2)return;
-      const fallback=v.messages.at(-1),revision=v.active?.revision;
-      const input=V.modelContext(state,text);
-      if(input.recent.at(-1)===fallback)input.recent=input.recent.slice(0,-1);
-      await showModel(state,v,input,revision,fallback);
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
@@ -742,7 +703,6 @@
       const {v1: name,value} = b.dataset, v = vNow(), state = getState();
       try {
         if (name === 'tab') return selectTab(value);
-        if (name === 'addReminder') return addReminderDraft();
         if (name === 'removeReminder') return removeReminderRow(b);
         if (name === 'reminderTimeSort') {
           delete v.settings.reminderOrder;
@@ -807,7 +767,6 @@
         }
         if (name === 'open') {
           const opened = V.open(state,value);
-          clearModelChat();
           if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
           if (page() !== 'v1') selectTab('chat');
         }
@@ -819,17 +778,22 @@
           if (!r) return;
           if (r?.award) reward(r.award);
           else if (r && !wasComplete && record?.completedAt != null) playCompletionSound();
-          clearModelChat();
-          if(r.guidance)guideFixed(state,v,r.guidance);
         }
-        if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
+        if (name === 'outcome') {
+          const active=v.active, task=V.linkedTask(state,active?.id);
+          if(!active)return;
+          if(task)V.checkTask(state,task,active.day,value==='主动跳过'?'skipped':'incomplete');
+          else V.park(v,value);
+          V.message(v,'已记录「'+value+'」。');
+        }
         if (name === 'remindOff' && v.settings.times[v.active?.id]) {
           if (!window.confirm('关闭「'+V.title(v,v.active.id)+'」的后续提醒？'))return;
-          v.settings.times[v.active.id].enabled=false;
+          const task=V.linkedTask(state,v.active.id);
+          if(task){P.preserveSchedule(task,new Date());task.reminderEnabled=false;V.init(state);}
+          else V.setFixedReminder(v,v.active.id,{enabled:false});
           V.park(v,'未记录');
-          clearModelChat();
         }
-        if (name === 'pause') { state.settings.pausedUntil=Date.now()+3600000; V.park(v,'暂时延迟'); clearModelChat(); toast('已暂停监督一小时'); }
+        if (name === 'pause') { state.settings.pausedUntil=Date.now()+3600000; V.park(v,'暂时延迟'); toast('已暂停监督一小时'); }
         if (name === 'resume') { state.settings.pausedUntil = 0; toast('已恢复监督'); }
         if (name === 'agreeTime') V.agreeTime(v);
         if (name === 'timer') V.timerAction(v,value);
@@ -853,11 +817,6 @@
           fields['when'+value].value='09:00';
           fields['step'+value].value='';
           return;
-        }
-        if (name === 'fixedOptions') clearModelChat();
-        if (name === 'modelOption') {
-          const selection=modelChat?.v===v && modelChat.revision===v.active?.revision ? modelChat.options[Number(value)] : null;
-          if (selection) void reply(selection,true);
         }
         if (name === 'extract') {
           const form=document.querySelector('[data-v1-form="tomorrow"]');
@@ -900,7 +859,13 @@
             if (configureSchedule(data) === false) return;
             break;
           case 'settings': configureRewards(data); break;
-          case 'chat': void reply(data.message,usingTrial()||Boolean(modelChat)||e.submitter?.value==='model'); form.reset(); break;
+          case 'chat': {
+            const useModel=e.submitter?.value==='model';
+            if(useModel && modelSending)return;
+            form.reset();
+            void reply(data.message,useModel);
+            return;
+          }
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
           case 'daily':
@@ -955,6 +920,7 @@
     if (api) void checkConnection();
     return {
       screen, selectTab, clock, playReminderSound, playCompletionSound, remindersAudible, refreshUsage,
+      reconcileTasks:()=>V.reconcileTasks(getState()),refreshChat:paint,
       tick: now => {
         const v = vNow();
         const count = v.messages.length;

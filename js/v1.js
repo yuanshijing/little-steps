@@ -4,7 +4,7 @@
 })(globalThis, (P, catalog) => {
   'use strict';
   const { data, rewards, phases, customOptions } = catalog;
-  const ids = ['wake', 'am', 'pm', 'check', 'dinner', 'bath', 'night', 'sleep'];
+  const ids = P.fixedIds;
   const schedule = ['07:30', '09:00', '14:00', '16:00', '18:30', '20:00', '20:45', '22:45'];
   const work = ['am', 'pm', 'night'];
   const M = 60000;
@@ -12,6 +12,90 @@
   const intervals = { wake: 3, rise: 2, wash: 10, start: 5, switch: 5, returning: 5, bedtime: 5, unanswered: 15 };
   const star = { wake: '晨光星', am: '行动星', pm: '行动星', night: '行动星', bath: '效率星', sleep: '休憩星', return: '回归星' };
   const dialogueVersion = 3;
+  const owner = new WeakMap();
+  const reminderId = task=>task.reminderAlias ?? (task.id.startsWith('custom-') ? task.id : 'custom-'+task.id);
+  const linkedTask=(state,id)=>state?.tasks.find(task=>reminderId(task)===id);
+  const statusText={completed:'已完成',partial:'部分完成',incomplete:'未完成',skipped:'主动跳过',unrecorded:'未记录',active:'进行中'};
+  function applyTaskReminders(state,times) {
+    for(const [id,row] of Object.entries(times)){
+      if(!id.startsWith('custom-') || row.localArchive)continue;
+      const task=linkedTask(state,id);
+      const day=/^\d{4}-\d{2}-\d{2}$/.test(row.addedDay??'') && P.shiftDate(row.addedDay,0)===row.addedDay
+        ? row.addedDay : task?.day ?? P.dateKey();
+      if(task){
+        const changes={when:row.time,reminderEnabled:row.remind??(row.enabled!==false),paused:Boolean(row.paused),archived:Boolean(row.removed),
+          title:P.clean(row.title,80)||task.title,day,repeat:row.repeat||task.repeat};
+        if(Object.keys(changes).some(key=>task[key]!==changes[key])){
+          P.preserveSchedule(task,new Date());
+          Object.assign(task,changes);
+        }
+      } else {
+        const added=P.upsertTask(state,{id,title:P.clean(row.title,80)||'自定义任务',when:row.time,day,repeat:row.repeat??'daily',
+          reminderEnabled:row.remind??(row.enabled!==false),sharedReminder:true});
+        added.archived=Boolean(row.removed);
+        added.paused=Boolean(row.paused);
+      }
+    }
+  }
+  function projectTasks(state,v) {
+    owner.set(v,state);
+    if(!v.tasksUnified){
+      for(const [id,row] of Object.entries(v.settings.times)){
+        if(!id.startsWith('custom-') || row.removed || row.taskSchedule || linkedTask(state,id))continue;
+        const matches=state.tasks.filter(task=>!task.archived && !task.reminderAlias && task.repeat==='daily' &&
+          task.title===row.title && task.when===row.time);
+        if(matches.length===1){
+          const task=matches[0], former=reminderId(task);
+          if(v.settings.times[former]?.taskSchedule)delete v.settings.times[former];
+          task.reminderAlias=id;
+          task.sharedReminder=true;
+        }
+      }
+      applyTaskReminders(state,v.settings.times);
+      for(const row of Object.values(v.records)){
+        const task=linkedTask(state,row.id);
+        if(!task)continue;
+        const item=P.openInstance(state,task,row.day);
+        if(item.status!=='pending')continue;
+        item.status=row.completedAt?'completed':Object.keys(statusText).find(key=>statusText[key]===row.status)??'pending';
+        if(row.completedAt)item.rewards.completed=true; // Old confirmations must not grant a reward on migration.
+        item.updatedAt=row.completedAt||row.history?.at(-1)?.at||null;
+        item.startedAt=row.startedAt??null;
+      }
+      v.tasksUnified=true;
+    }
+    for(const task of state.tasks){
+      if(task.retiredExample)continue;
+      const id=reminderId(task), prior=v.settings.times[id];
+      v.settings.times[id]={...prior,title:task.title,time:task.when,addedDay:task.day,repeat:task.repeat,
+        paused:Boolean(task.paused),remind:task.reminderEnabled!==false,
+        enabled:!task.paused && task.reminderEnabled!==false &&
+          !(task.reminderEnabled===undefined && P.obsoleteBedtimeNotice(task.title)),
+        removed:Boolean(task.archived),
+        taskSchedule:true,localOnly:!task.sharedReminder};
+    }
+    return v;
+  }
+  function setFixedReminder(v,id,changes,now=new Date()) {
+    const setting=v.settings.times[id], until=P.dateKey(now);
+    if(!ids.includes(id)||Object.keys(changes).every(key=>setting[key]===changes[key]))return;
+    const history=setting.history??=[];
+    if(history.at(-1)?.until!==until)history.push({until, enabled:setting.enabled,removed:setting.removed,time:setting.time});
+    Object.assign(setting,changes);
+  }
+  function reconcileTasks(state,now=new Date()) {
+    const v=init(state), day=P.dateKey(now);
+    const isAvailable=id=>{
+      const task=linkedTask(state,id);
+      return !task||P.occurs(task,day);
+    };
+    if(v.active && !isAvailable(v.active.id))park(v,'当天无须执行');
+    v.queue=v.queue.filter(row=>isAvailable(row.id)&&v.settings.times[row.id]?.enabled);
+    for(const task of state.tasks){
+      const row=v.records[day+'/'+reminderId(task)];
+      if(row && row.status==='待执行' && row.notifiedAt==null)row.planned=P.dueAt(day,task.when);
+    }
+  }
   function init(state) {
     const v = state.v1 ??= {
       settings: { times: Object.fromEntries(ids.map((id, index) => [id, { time: schedule[index], enabled: true }])),
@@ -33,7 +117,7 @@
       delete a.fixedTrace;
       delete a.modelGuided;
     }
-    return v;
+    return projectTasks(state,v);
   }
   function monday(day) {
     const offset = (new Date(day + 'T12:00:00').getDay() + 6) % 7;
@@ -82,13 +166,15 @@
   }
   function record(v, day, id) {
     const key = day + '/' + id;
-    return v.records[key] ??= { key, day, id, status: '待执行',
+    return v.records[key] ??= { key, day, id, title:title(v,id),status: '待执行',
       planned: v.settings.times[id] ? P.dueAt(day, v.settings.times[id].time) : null, history: [], points: 0 };
   }
   function event(v, type, now, payload = {}) {
     v.events.push({ type, at: now.getTime(), day: P.dateKey(now), ...payload });
   }
-  function message(v, text, role = 'coach', detail = {}) { v.messages.push({ role, text, ...detail }); }
+  function message(v, text, role = 'coach', detail = {}) {
+    v.messages.push({ role, text, at:Date.now(), syncId:P.uid(), ...detail });
+  }
   function planText(state, day, night = false, timeBudget = Infinity, scene) {
     const confirmed = state.plans[day]?.items;
     const rows = confirmed?.length ? confirmed : P.schedule(state, day).filter(({item, task}) =>
@@ -113,22 +199,26 @@
     const day = P.dateKey(now);
     if (!ids.includes(id) && !isCustom(v, id) && id !== 'return') return false;
     if (v.settings.times[id]?.removed) return false;
+    const task=linkedTask(state,id);
+    if(task && (!P.occurs(task,day) || P.outcomes.includes(state.instances[day+'/'+task.id]?.status) ||
+      source==='schedule' && state.instances[day+'/'+task.id]?.status==='active'))return false;
     const item = record(v, day, id);
+    if(source==='schedule' && item.notifiedAt!=null && !v.queue.some(row=>row.id===id&&row.day===day) && item.status!=='待执行')return false;
     const unansweredManual = source === 'schedule' && item.notifiedAt == null && !item.history.length &&
       ['暂时延迟','未记录'].includes(item.status) &&
       v.events.findLast(event=>event.type==='reminder' && event.key===item.key)?.source === 'manual';
-    if (source !== 'manual' && ((!unansweredManual && item.status !== '待执行') || !v.settings.times[id]?.enabled)) return false;
+    if (source !== 'manual' && ((!unansweredManual && item.status !== '待执行') ||
+      (source==='schedule' && !v.settings.times[id]?.enabled))) return false;
     if (v.active?.id === id && v.active.day === day) return false;
     if (item.completedAt && id !== 'return' && !work.includes(id)) return false;
     if (id === 'return' && v.rewardHistory.some(row => row.id === 'return' && now.getTime() - row.at < M)) {
       message(v, '不久前的回归已记录。可以先继续刚才重新开始的任务。');
       return true;
     }
-    const passive = v.active && ['sustain', 'wrap', 'backHold'].includes(v.active.stage);
-    if (source !== 'manual' && v.active && !passive) {
+    if (source !== 'manual' && (v.active || state.timer?.mode==='deep' && state.timer.endsAt>now.getTime())) {
       const queued = v.queue.find(entry => entry.id === id && entry.day === day);
       if (!queued) v.queue.push({ id, day, source });
-      if (source === 'schedule' || queued?.source === 'schedule') announceScheduled(v,item,now);
+      if (source === 'schedule' || queued?.source === 'schedule') announceScheduled(state,v,item,now);
       return true;
     }
     if (source === 'manual') v.queue = v.queue.filter(entry=>entry.id!==id || entry.day!==day);
@@ -157,12 +247,14 @@
     const timeBudget=item.id==='night'?bedMinutes(v,item.day,now):Infinity;
     const list=item.id==='night' && timeBudget<=10 ? '如果快到休息时间，只做必要的收尾。'
       : ['wake','am','pm','night'].includes(item.id) ? planText(state,item.day,item.id==='night',timeBudget,item.id) : '';
-    return [intro, quote, list].filter(Boolean).join('\n\n');
+    const task=linkedTask(state,item.id), parent=task?.dependsOn && resolveTask(state,v,task.dependsOn,item.day);
+    const dependency=parent && !parent.done ? (task.strictDependency?'开始前需先完成':'如果方便，可以先做')+'「'+parent.title+'」。':'';
+    return [intro, quote, list, dependency].filter(Boolean).join('\n\n');
   }
-  function announceScheduled(v,item,now,queued = true) {
+  function announceScheduled(state,v,item,now,queued = true) {
     if (item.notifiedAt != null) return false;
     item.notifiedAt = now.getTime();
-    message(v, '「' + title(v,item.id) + '」的定时提醒到了。' + (queued ? '可以点下方按钮处理这条提醒。' : '可以在当前对话里回复。'),
+    message(v, reminderText(state,v,item,now) + (queued ? '\n\n这条提醒已放入待处理。' : ''),
       'coach', {source:'schedule',reminderId:item.id,at:item.notifiedAt});
     event(v,queued ? 'reminder_queued' : 'reminder',now,{id:item.id,key:item.key,source:'schedule'});
     return true;
@@ -173,17 +265,57 @@
     item.remindedAt = now.getTime();
     v.active = { id: item.id, key: item.key, day: item.day, stage: item.id === 'return' ? 'recovery' : 'initial',
       due: now.getTime() + v.settings.intervals.unanswered * M, attempts: 0, revision: P.uid(), thread: P.uid(), dialogueVersion };
-    const alreadyAnnounced = source === 'schedule' && item.notifiedAt != null;
+    const alreadyAnnounced = (source === 'schedule'||source==='queued') && item.notifiedAt != null;
     if (source === 'schedule' && !alreadyAnnounced) item.notifiedAt = now.getTime();
     v.active.initialPrompt = reminderText(state,v,item,now);
-    message(v, v.active.initialPrompt, 'coach', {source:alreadyAnnounced ? 'queued' : source,reminderId:item.id,at:now.getTime()});
-    event(v, 'reminder', now, { id: item.id, key: item.key, source });
+    if(!alreadyAnnounced)message(v, v.active.initialPrompt, 'coach', {source,thread:v.active.thread,reminderId:item.id,at:now.getTime()});
+    event(v, alreadyAnnounced?'reminder_opened':'reminder', now, { id: item.id, key: item.key, source });
     return true;
   }
   function park(v, status) {
     const item = v.records[v.active?.key];
     if (item && !item.completedAt && !(item.backAt != null && ['未记录','暂时延迟'].includes(status))) item.status = status;
     v.active = null;
+  }
+  function resolveTask(state,v,id,day) {
+    if(ids.includes(id)){
+      const setting=v.settings.times[id], row=v.records[day+'/'+id];
+      return setting?.enabled && !setting.removed && !['主动跳过','未完成'].includes(row?.status)
+        ? {id,title:title(v,id),time:setting.time,done:row?.completedAt!=null}:null;
+    }
+    const task=state.tasks.find(row=>row.id===id);
+    if(!task || !P.occurs(task,day))return null;
+    const result=state.instances[day+'/'+task.id]?.status;
+    if(['skipped','incomplete','partial','unrecorded'].includes(result))return null;
+    return {id:reminderId(task),title:task.title,time:task.when,done:result==='completed',blocked:P.blocked(state,task,day)};
+  }
+  function customHandoff(state,v,task,day,now) {
+    if(day!==P.dateKey(now) || v.active || state.settings.pausedUntil>now.getTime() ||
+      state.timer?.mode==='deep' && state.timer.endsAt>now.getTime())return;
+    const chosen=task.nextId && resolveTask(state,v,task.nextId,day);
+    const minutes=chosen ? (P.dueAt(day,chosen.time)-now.getTime())/M:Infinity;
+    if(chosen && !chosen.done && !chosen.blocked && minutes>=-30 && minutes<=15 &&
+      open(state,chosen.id,now,'transition'))return;
+    const next=[...ids,...state.tasks.filter(row=>row.id!==task.id&&!P.isLegacyWakeTask(row)).map(row=>row.id)]
+      .map(id=>resolveTask(state,v,id,day)).filter(row=>row && !row.done && P.dueAt(day,row.time)>=now.getTime())
+      .sort((a,b)=>a.time.localeCompare(b.time))[0];
+    if(next)message(v,'下一项计划是 '+next.time+' 的「'+next.title+'」。');
+  }
+  function checkTask(state,task,day,outcome,now=new Date()) {
+    const v=init(state), id=reminderId(task);
+    if(!P.occurs(task,day) && !state.instances[day+'/'+task.id])throw Error('这一天没有安排此任务');
+    const result=P.transition(state,task,day,outcome,now);
+    if(!result.changed)return result;
+    const row=record(v,day,id);
+    row.title=result.item.title;
+    row.status=statusText[result.item.status]??result.item.status;
+    row.completedAt=result.item.status==='completed'?now.getTime():null;
+    if(P.outcomes.includes(result.item.status)){
+      if(v.active?.key===row.key)v.active=null;
+      v.queue=v.queue.filter(queued=>queued.id!==id||queued.day!==day);
+      if(result.item.status==='completed' && result.previous!=='completed')customHandoff(state,v,task,day,now);
+    }
+    return result;
   }
   function promptReview(v, kind, day, now) {
     const prompts = v.reviewPrompts ??= {};
@@ -280,6 +412,8 @@
   }
   function actualTask(state,v,a) {
     const item=v.records[a.key];
+    const custom=linkedTask(state,a.id);
+    if(custom)return custom;
     if (item.originalTask) return item.originalTask;
     const scene=v.records[item.originKey]?.id ?? a.id;
     if (!work.includes(scene) && !['check','return'].includes(scene)) return {title:title(v,scene)};
@@ -298,10 +432,16 @@
       .filter(row=>row?.strategy && (row.scene===a.id || row.barrier===item.barrier))
       .slice(-3).map(row=>row.strategy+'（已确认回归）') : [];
     if(item?.strategy) strategies.push(item.strategy+'（本次建议，效果待确认）');
+    if(item?.backAt)strategies.push('用户已确认回到原任务');
     return {text,scene:a?.id ?? 'all',reminderId:a?.id,status:a?.stage ?? '',
       actualTask:task ? [task.title,task.firstStep].filter(Boolean).join(' · ') : '当前任务（名称未确认）',
-      fixedTurns:a?.fixedTrace ?? [],userState:text,
-      plan:a ? confirmedPlan(state,a.day).map(row=>[row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n') : '',
+      fixedTurns:a?.fixedTrace ?? [],userState:a?.fixedTrace?.at(-1)?.selection ?? text,
+      plan:(()=>{
+        const day=a?.day??P.dateKey(), rows=confirmedPlan(state,day);
+        const ids=new Set(rows.map(row=>row.id));
+        return [...rows,...state.tasks.filter(task=>P.occurs(task,day)&&!ids.has(task.id)&&!P.outcomes.includes(state.instances[day+'/'+task.id]?.status))]
+          .slice(0,8).map(row=>[row.when,row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n');
+      })(),
       style:state.settings.style, strategies,
       recent:a?.thread ? v.messages.filter(row=>row.thread===a.thread).slice(-8) : v.messages.slice(-5),
       memories:v.settings.memory ? v.memory.filter(row=>scenes.includes(row.scene)).slice(-4) : []};
@@ -344,10 +484,15 @@
     if (!choice) return false;
     const stage=a.stage,item=v.records[a.key],s=v.settings,task=actualTask(state,v,a);
     const [action,target]=choice.next.split(':');
+    const custom=linkedTask(state,a.id);
+    if(custom && action==='@customDoing' && P.blocked(state,custom,a.day)){
+      message(v,'这项任务设为必须先完成前置任务。可在「我的任务」调整条件。');
+      return {award:null};
+    }
     const reply=choice.reply.replace('{task}',()=>task?.title || '当前任务')
       .replace('{firstStep}',()=>task?.firstStep || '先打开当前任务需要的一份材料。');
     const question=a.prompt ?? (stage==='initial'?a.initialPrompt ?? reminderText(state,v,item):phases[stage]?.question ?? '');
-    const trace=[...(a.fixedTrace ?? []),{stage,question,selection:choice.label,response:reply}].slice(0,2);
+    const trace=[...(a.fixedTrace ?? []),{stage,question,selection:choice.label,response:reply}].slice(-2);
     a.fixedTrace=trace;
     item.history.push({at:now.getTime(),stage,response:choice.label});
     if (!item.completedAt && !['偏航','已回归'].includes(item.status)) item.status='准备执行';
@@ -355,13 +500,29 @@
     message(v,choice.label,'you',detail);
     if (reply) message(v,reply,'coach',detail);
     const delays={rise:stage==='initial'?s.intervals.wake:s.intervals.rise,wash:s.intervals.wash,
-      begin:s.intervals.start,barrier:s.intervals.start,back:s.intervals.returning,bedtime:s.intervals.bedtime};
+      begin:s.intervals.start,barrier:s.intervals.start,back:s.intervals.returning,bedtime:s.intervals.bedtime,
+      customHelp:s.intervals.start,customBarriers:s.intervals.start};
     const advance=next=>go(v,next,now,delays[next]??null);
     function skipReview() {
       v.reviews[item.day] ??= {skipped:true};
       finishReview(v,'daily/'+item.day);
     }
     switch (action) {
+      case '@customDoing':
+        if(custom)checkTask(state,custom,a.day,'start',now);
+        else item.status='进行中';
+        v.active=null;
+        break;
+      case '@customComplete': {
+        if(!custom){taskCompleted(v,item,now);park(v,'已完成');break;}
+        const result=checkTask(state,custom,a.day,'completed',now);
+        if(result.reward){
+          const text='叮！你完成了「'+result.item.title+'」，收下一颗行动星吧。';
+          message(v,text+' ⭐ +'+result.reward,'coach',detail);
+          return {award:{id:a.id,text,bonus:result.reward,star:'行动星',level:1}};
+        }
+        break;
+      }
       case '@wake':
         startReward(state,item,now);
         if (!item.backInBed && now.getTime()<=item.planned+s.wakeLimit*M) grant(state,item,2,now);
@@ -441,9 +602,8 @@
     }
     const same=v.active?.thread===a.thread;
     if (same && reply.endsWith('？')) v.active.prompt=reply;
-    const guidance=same && trace.length===2 && choice.guide
-      ? {input:modelContext(state,choice.label),revision:v.active.revision}:null;
-    return {award:v.rewardHistory.length>before ? v.rewardHistory.at(-1):null,guidance};
+    if(same && choice.guide)message(v,'如果这一步还是卡住，可以用文字或语音描述情况，再点「发送 AI 消息」。','coach',detail);
+    return {award:v.rewardHistory.length>before ? v.rewardHistory.at(-1):null};
   }
   function setFollow(v, minutes, now = new Date()) {
     if (!v.active || v.active.id === 'wake' || v.active.stage !== 'wait') return false;
@@ -507,23 +667,25 @@
     }
     v.queue = v.queue.filter(row => {
       const setting = v.settings.times[row.id];
-      if (row.day !== day || !setting?.enabled || setting.removed) return false;
-      const delay = time - P.dueAt(day, setting.time);
-      return delay < 60*M && (row.source !== 'schedule' || delay >= 0);
+      const task=linkedTask(state,row.id);
+      if (row.day !== day || !setting?.enabled || setting.removed ||
+        task && (!P.occurs(task,day)||P.outcomes.includes(state.instances[day+'/'+task.id]?.status))) return false;
+      return row.source !== 'schedule' || time >= P.dueAt(day, setting.time);
     });
-    if (v.queue.length && (!v.active || ['sustain','wrap','backHold'].includes(v.active.stage))) {
+    v.queue.sort((a,b)=>v.settings.times[a.id].time.localeCompare(v.settings.times[b.id].time));
+    if (!deepFocus && v.queue.length && !v.active) {
       const next = v.queue.shift();
-      changed = open(state,next.id,now,next.source) || changed;
+      changed = open(state,next.id,now,next.source==='schedule'?'queued':next.source) || changed;
     }
-    for (const id of reminderIds(v)) {
+    for (const id of reminderIds(v).sort((a,b)=>v.settings.times[a].time.localeCompare(v.settings.times[b].time))) {
       const setting = v.settings.times[id];
       const due = P.dueAt(day, setting.time);
       if (!setting.enabled || time < due || time >= due + 30*M) continue;
       const pending = v.queue.find(row=>row.id===id && row.day===day);
       const recordForToday = v.records[day+'/'+id];
-      if (pending) changed = announceScheduled(v,record(v,day,id),now) || changed;
+      if (pending) changed = announceScheduled(state,v,record(v,day,id),now) || changed;
       else if (v.active?.id === id && v.active.day === day && recordForToday && !recordForToday.history.length && !recordForToday.completedAt) {
-        changed = announceScheduled(v,recordForToday,now,false) || changed;
+        changed = announceScheduled(state,v,recordForToday,now,false) || changed;
       } else changed = open(state,id,now,'schedule') || changed;
     }
     const sleep = v.settings.times.sleep;
@@ -567,13 +729,19 @@
     return v.timers.findLast(row => row.key === v.active?.key) ?? null;
   }
   function dailyRows(v, day) {
+    const state=owner.get(v);
     return allReminderIds(v).map(id => {
-      const row = v.records[day + '/' + id];
-      if (!row && v.settings.times[id].removed) return null;
-      if (isCustom(v, id) && !row && v.settings.times[id].addedDay > day) return null;
-      const status = ['待执行', '待回复', '已提醒'].includes(row?.status) ? '未记录' : row?.status ?? '未记录';
-      return {title:title(v,id),status,completedAt:row?.completedAt};
-    }).filter(Boolean);
+      const task=linkedTask(state,id), setting=v.settings.times[id];
+      const row=v.records[day+'/'+id], item=task && state.instances[day+'/'+task.id];
+      const fixed=setting.history?.find(entry=>day<entry.until)??setting;
+      const scheduled=task?P.occurs(task,day):fixed.enabled&&!fixed.removed&&(!setting.addedDay||setting.addedDay<=day);
+      const completion=item?.status==='completed'?(item.updatedAt??row?.completedAt):
+        item&&P.outcomes.includes(item.status)?null:row?.completedAt;
+      const recorded=item && P.outcomes.includes(item.status) ? statusText[item.status]
+        : row?.completedAt?'已完成':['未完成','部分完成','主动跳过'].includes(row?.status)?row.status:null;
+      return {id,title:item?.title??row?.title??(task?P.scheduleAt(task,day).title:title(v,id)),
+        status:recorded??(scheduled?'未记录':'当天无须执行'),completedAt:completion,level:row?.level};
+    });
   }
   function dailyText(v, day) {
     const time = stamp => new Date(stamp).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
@@ -582,18 +750,16 @@
   function weekly(v, day) {
     const first = P.shiftDate(day, -6);
     const records = Object.values(v.records).filter(row => row.day >= first && row.day <= day);
-    const stats = allReminderIds(v).map(id => {
-      const added = v.settings.times[id].addedDay;
-      const entries = records.filter(row => row.id === id);
-      const period = v.settings.times[id].removed ? entries.length : !added || added <= first ? 7
-        : Array.from({length:7}, (_, index) => P.shiftDate(first,index)).filter(day => day >= added).length;
-      if (!period) return null;
-      const completed = entries.filter(row => row.completedAt).length;
-      const skipped = entries.filter(row => row.status === '主动跳过').length;
-      const incomplete = entries.filter(row => row.status === '未完成').length;
-      return { id, completed, advanced: entries.filter(row => row.level === 2).length, skipped, incomplete,
-        missing: period - completed - skipped - incomplete, rate: completed + incomplete ? completed / (completed + incomplete) : null };
-    }).filter(Boolean);
+    const daily=Array.from({length:7},(_,index)=>dailyRows(v,P.shiftDate(first,index)));
+    const stats=allReminderIds(v).map(id=>{
+      const entries=daily.flat().filter(row=>row.id===id);
+      const count=status=>entries.filter(row=>row.status===status).length;
+      const completed=count('已完成'),incomplete=count('未完成'),partial=count('部分完成');
+      const denominator=completed+incomplete+partial;
+      return {id,completed,advanced:entries.filter(row=>row.status==='已完成'&&row.level===2).length,
+        skipped:count('主动跳过'),incomplete,partial,missing:count('未记录'),notScheduled:count('当天无须执行'),
+        rate:denominator?completed/denominator:null};
+    });
     const cases = v.events.filter(row => row.day >= first && row.day <= day && row.type === 'detour').slice(-12).map(row => ({
       ...row, outcome: records.find(record => record.key === row.key)?.backAt >= row.at ? '已确认回归' : '未确认回归',
     }));
@@ -637,18 +803,22 @@
       message(v, '解锁「' + name + '」 ⭐ +' + points);
     }
   }
+  function safetyReply(state, input, now = new Date()) {
+    if(!/自杀|不想活|伤害自己|伤害别人|结束生命/.test(input))return false;
+    const v=init(state), a=v.active;
+    message(v,P.clean(input,500),'you',a?{thread:a.thread,reminderId:a.id}:{});
+    state.settings.pausedUntil=now.getTime()+60*M;
+    park(v,'暂时延迟');
+    message(v,'你的安全比计划重要。如果你或他人可能马上受伤，请立即联系当地急救服务，并请身边可信任的人来陪你。现在可以先去有人陪伴的地方。');
+    return true;
+  }
   function free(state, input, now = new Date()) {
     const v = init(state);
     const text = P.clean(input, 500);
     if (!text) return null;
+    if(safetyReply(state,text,now))return 'urgent';
     const a=v.active, detail=a?{thread:a.thread,reminderId:a.id}:{};
     message(v,text,'you',detail);
-    if (/自杀|不想活|伤害自己|伤害别人|结束生命/.test(text)) {
-      state.settings.pausedUntil = now.getTime() + 60 * M;
-      park(v, '暂时延迟');
-      message(v, '你的安全比计划重要。如果你或他人可能马上受伤，请立即联系当地急救服务，并请身边可信任的人来陪你。现在可以先去有人陪伴的地方。');
-      return 'urgent';
-    }
     if (/暂停|不想被提醒|停止监督/.test(text)) {
       state.settings.pausedUntil = now.getTime() + 60 * M;
       park(v,'暂时延迟');
@@ -705,5 +875,6 @@
     return 'fallback';
   }
   return { ids, intervals, star, data, phases, init, modelContext, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, manualReminderOrder, reminderTimeOrder, title, record, message, open, options, choose, park,
-    tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, achievementPoints, free, planText, catalog };
+    reminderId, linkedTask, applyTaskReminders, checkTask, customHandoff, setFixedReminder, reconcileTasks,
+    tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, achievementPoints, safetyReply, free, planText, catalog };
 });

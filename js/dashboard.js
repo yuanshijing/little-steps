@@ -29,6 +29,9 @@
     }
     for (const event of state.events) {
       if (event.type === 'timer_finished') add('专注星', event.id, event.date, Date.parse(event.at), '完成计时');
+      if (event.type==='checkin' && event.status==='completed' && event.taskId && event.pointsEarned>0) {
+        add('行动星',event.taskDay+'/'+event.taskId,event.taskDay,Date.parse(event.at),event.title);
+      }
     }
     for (const [day, review] of Object.entries(v.reviews)) {
       if (!review.skipped) add('成长星', day, day, P.dueAt(day, '23:59'), '保存每日复盘');
@@ -57,13 +60,13 @@
   function reminders(state, now = new Date()) {
     const v = V.init(state);
     const day = P.dateKey(now);
-    return `<fieldset class="reminder-group"><legend>提醒任务</legend>
+    return `<fieldset class="reminder-group"><legend>固定提醒</legend>
       <div class="reminder-order-controls">
         <p class="subtle" id="reminder-reorder-help">拖动左侧把手调整顺序，也可以用键盘的上、下方向键。</p>
         <button type="button" class="secondary small" data-v1="reminderTimeSort">按时间排序</button>
       </div>
       <p class="subtle reminder-order-status" id="reminder-order-status" role="status">${V.manualReminderOrder(v).length?'当前按手动顺序排列。':'当前按时间排序，从早上 06:00 开始。'}</p>
-      <div id="reminder-list">${V.displayReminderIds(v).map(id => {
+      <div id="reminder-list">${V.displayReminderIds(v).filter(id=>V.ids.includes(id)).map(id => {
       const {time, enabled} = v.settings.times[id];
       const title = esc(V.title(v,id));
       const custom = V.isCustom(v,id);
@@ -191,5 +194,5 @@
       ${Object.keys(v.achievements).length ? '<h3>已解锁成就</h3><p>' + Object.keys(v.achievements).map(esc).join(' · ') + '</p>' : ''}</section>
       ${rewardChart(state,entries,period,anchor)}`;
   }
-  return { collection, rewardStatistics, reminders, reminderStatus, sky };
+  return { collection, pointsByDay, rewardStatistics, reminders, reminderStatus, sky };
 });

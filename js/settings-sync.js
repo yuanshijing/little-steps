@@ -15,14 +15,16 @@
 
   function snapshot(state) {
     const v = V.init(state), settings = v.settings;
-    const order=V.manualReminderOrder(v).filter(id=>safeKey(id) && P.timeOk(settings.times[id].time) && !settings.times[id].localArchive);
+    const order=V.manualReminderOrder(v).filter(id=>safeKey(id) && P.timeOk(settings.times[id].time) && !settings.times[id].localArchive && !settings.times[id].localOnly);
     return {
       remind:state.settings.remind !== false,
       ...(order.length?{reminderOrder:order}:{}),
       times:Object.fromEntries(sortedEntries(settings.times).filter(([id,row])=>
-        (V.ids.includes(id) || id.startsWith('custom-')) && safeKey(id) && P.timeOk(row?.time) && !row.localArchive)
+        (V.ids.includes(id) || id.startsWith('custom-')) && safeKey(id) && P.timeOk(row?.time) && !row.localArchive && !row.localOnly)
         .map(([id,row])=>[id,{time:row.time,enabled:row.enabled!==false,removed:row.removed===true,
-          ...(id.startsWith('custom-')?{title:P.clean(row.title,60),...(validDay(row.addedDay)?{addedDay:row.addedDay}:{})}:{})}])),
+          ...(id.startsWith('custom-')?{title:P.clean(row.title,80),...(validDay(row.addedDay)?{addedDay:row.addedDay}:{}),
+            ...(row.taskSchedule?{taskSchedule:true,repeat:P.repeats.includes(row.repeat)?row.repeat:'daily',paused:row.paused===true,remind:row.remind!==false,
+              ...(validDay(row.addedDay)?{weekday:new Date(row.addedDay+'T12:00:00Z').getUTCDay()}: {})}:{})}:{})}])),
       intervals:Object.fromEntries(Object.entries(V.intervals).map(([key,value])=>[key,P.bounded(settings.intervals?.[key],1,120,value)])),
       wrapTimes:{am:P.timeOk(settings.wrapTimes?.am)?settings.wrapTimes.am:'11:50',pm:P.timeOk(settings.wrapTimes?.pm)?settings.wrapTimes.pm:'18:15'},
       weekDay:P.bounded(settings.weekDay,0,6,0),weekTime:P.timeOk(settings.weekTime)?settings.weekTime:'14:00',
@@ -45,13 +47,22 @@
     for (const key of preferenceFields) incoming[key]=payload[key];
     candidate.settings.remind = payload.remind;
     const profile=snapshot(candidate), v=V.init(state);
+    V.applyTaskReminders(state,times);
+    for(const task of state.tasks){
+      if(!task.sharedReminder || Object.hasOwn(times,V.reminderId(task)))continue;
+      P.preserveSchedule(task,new Date());
+      task.sharedReminder=false;
+      task.reminderEnabled=false;
+    }
     // Keep labels for custom reminders referenced by older local records.
     const retired=Object.fromEntries(Object.entries(v.settings.times).filter(([id])=>id.startsWith('custom-') &&
       !Object.hasOwn(profile.times,id) && Object.values(v.records).some(record=>record.id===id))
       .map(([id,row])=>[id,{...row,removed:true,enabled:false,localArchive:true}]));
     state.settings.remind=profile.remind;
     Object.assign(v.settings,Object.fromEntries(scalarSettings.map(key=>[key,profile[key]])),{
-      times:{...retired,...profile.times},intervals:profile.intervals,wrapTimes:profile.wrapTimes,reminderOrder:profile.reminderOrder,
+      times:{...retired,...Object.fromEntries(V.ids.map(id=>[id,{...v.settings.times[id],...profile.times[id]}])),
+        ...Object.fromEntries(Object.entries(profile.times).filter(([id])=>!V.ids.includes(id)))},
+      intervals:profile.intervals,wrapTimes:profile.wrapTimes,reminderOrder:profile.reminderOrder,
     });
     for (const key of preferenceFields) v[key]=profile[key];
     v.queue=v.queue.filter(row=>v.settings.times[row.id]?.enabled && !v.settings.times[row.id].removed);
@@ -299,7 +310,7 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
-        <p class="subtle">同步提醒、晨间语录和音效。对话和复盘仍保存在此设备。</p>
+        <p class="subtle">账号同步定时提醒设置、晨间语录与音效。具体任务拆解、对话、长期记忆、打卡、积分及复盘保存在此设备。</p>
         ${emailPreferencePanel()}`;
     }
     let rememberLogin=true;
