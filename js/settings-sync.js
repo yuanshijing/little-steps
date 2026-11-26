@@ -15,8 +15,10 @@
 
   function snapshot(state) {
     const v = V.init(state), settings = v.settings;
+    const order=V.manualReminderOrder(v).filter(id=>safeKey(id) && P.timeOk(settings.times[id].time) && !settings.times[id].localArchive);
     return {
       remind:state.settings.remind !== false,
+      ...(order.length?{reminderOrder:order}:{}),
       times:Object.fromEntries(sortedEntries(settings.times).filter(([id,row])=>
         (V.ids.includes(id) || id.startsWith('custom-')) && safeKey(id) && P.timeOk(row?.time) && !row.localArchive)
         .map(([id,row])=>[id,{time:row.time,enabled:row.enabled!==false,removed:row.removed===true,
@@ -38,7 +40,8 @@
     const times=Object.fromEntries(sortedEntries(payload.times).filter(([id,row])=>safeKey(id) &&
       (V.ids.includes(id)||id.startsWith('custom-')) && P.timeOk(row?.time)));
     Object.assign(incoming.settings,{...Object.fromEntries(scalarSettings.map(key=>[key,payload[key]])),
-      times:{...incoming.settings.times,...times}, intervals:payload.intervals,wrapTimes:payload.wrapTimes});
+      times:{...incoming.settings.times,...times}, intervals:payload.intervals,wrapTimes:payload.wrapTimes,
+      reminderOrder:payload.reminderOrder});
     for (const key of preferenceFields) incoming[key]=payload[key];
     candidate.settings.remind = payload.remind;
     const profile=snapshot(candidate), v=V.init(state);
@@ -48,7 +51,7 @@
       .map(([id,row])=>[id,{...row,removed:true,enabled:false,localArchive:true}]));
     state.settings.remind=profile.remind;
     Object.assign(v.settings,Object.fromEntries(scalarSettings.map(key=>[key,profile[key]])),{
-      times:{...retired,...profile.times},intervals:profile.intervals,wrapTimes:profile.wrapTimes,
+      times:{...retired,...profile.times},intervals:profile.intervals,wrapTimes:profile.wrapTimes,reminderOrder:profile.reminderOrder,
     });
     for (const key of preferenceFields) v[key]=profile[key];
     v.queue=v.queue.filter(row=>v.settings.times[row.id]?.enabled && !v.settings.times[row.id].removed);
@@ -210,22 +213,32 @@
     let trialVersion=0;
     let loginPromptShown=false;
     let loginDialog;
-    function showFirstLogin(){
-      if(loginPromptShown)return;
+    let authResolved=false,authTimeout;
+    function openLogin() {
+      if(user)return false;
+      if(loginDialog?.open)return true;
       loginPromptShown=true;
-      try {
-        if(sessionStorage.getItem('planet-login-dismissed'))return;
-        sessionStorage.setItem('planet-login-dismissed','1');
-      } catch {}
-      loginDialog=document.createElement('dialog');
-      loginDialog.setAttribute('aria-labelledby','planet-login-title');
-      loginDialog.style.cssText='width:min(90vw,420px);padding:24px;border:1px solid #ded9eb;border-radius:18px;box-sizing:border-box;color:inherit';
-      loginDialog.innerHTML='<h2 id="planet-login-title" class="section-title">登录小步星球</h2>'+panel()+
-        '<button type="button" class="secondary small" data-dismiss-login>稍后登录</button>';
-      loginDialog.querySelector('[data-dismiss-login]').addEventListener('click',()=>loginDialog.close());
-      loginDialog.addEventListener('close',()=>loginDialog.remove(),{once:true});
-      document.body.append(loginDialog);
-      loginDialog.showModal();
+      const dialog=document.createElement('dialog');
+      loginDialog=dialog;
+      dialog.className='planet-login-dialog';
+      dialog.setAttribute('aria-labelledby','planet-login-title');
+      dialog.innerHTML='<h2 id="planet-login-title" class="section-title">登录小步星球</h2>'+panel()+
+        '<div class="planet-login-footer"><button type="button" class="secondary" data-dismiss-login>稍后登录</button></div>';
+      dialog.querySelector('[data-dismiss-login]').addEventListener('click',()=>dialog.close());
+      dialog.addEventListener('close',()=>{
+        dialog.remove();
+        if(loginDialog===dialog)loginDialog=null;
+      },{once:true});
+      document.body.append(dialog);
+      dialog.showModal();
+      return true;
+    }
+    function showFirstLogin() {
+      if(!loginPromptShown)openLogin();
+    }
+    function updateLoginStatus() {
+      const label=loginDialog?.querySelector('[role="status"]');
+      if(label)label.textContent=status;
     }
     async function trialCall(route,input) {
       const session=(await client.auth.getSession()).data?.session;
@@ -251,9 +264,11 @@
     }
     if(enabled)window.PlanetTrial={run:trialCall,refresh:refreshTrial};
     function sessionChanged(session) {
+      authResolved=true;
+      clearTimeout(authTimeout);
       const next=session?.user;
       if (next?.id===user?.id) {
-        if(!next){status='使用邮箱账号同步设置';redraw();showFirstLogin();}
+        if(!next){status='使用邮箱账号同步设置';redraw();showFirstLogin();updateLoginStatus();}
         return;
       }
       clearTimeout(timer);
@@ -275,9 +290,9 @@
     function panel() {
       if(!enabled)return '<p class="subtle">'+status+'。设置继续保存在当前浏览器。</p>';
       if(!user)return `<p class="subtle" role="status">${esc(status)}</p><form data-sync-form method="post">
-        <label>邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
-        <label>密码<input class="field" type="password" name="password" required minlength="8" autocomplete="current-password"></label>
-        <label><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
+        <label class="planet-login-field">邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
+        <label class="planet-login-field">密码<input class="field" type="password" name="password" required minlength="8" autocomplete="current-password"></label>
+        <label class="planet-login-remember"><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
         <div class="controls"><button class="primary" name="mode" value="login">登录</button>
         <button class="secondary" name="mode" value="register">创建邮箱账号</button></div></form>`;
       return `<p>已登录 ${esc(user.email)}</p><p class="subtle" role="status">${esc(status)}</p>
@@ -299,16 +314,28 @@
       removeItem(key){sessionStorage.removeItem(key);storage.removeItem(key);},
     };
     if(enabled) {
-      const redirect=location.origin+location.pathname;
+      const redirect=location.protocol==='file:' ? 'https://yuanshijing.github.io/little-steps/' : location.origin+location.pathname;
       const sdk=document.createElement('script');
       sdk.src='https://unpkg.com/@supabase/supabase-js@2.119.2/dist/umd/supabase.js';
       sdk.integrity='sha384-A97u3Qnt9GZHURO9YJZRe7VQgGUeFzcv6I1oIGnUTxQrCxnpQMwR0/G8F2zt9abZ';
       sdk.crossOrigin='anonymous';
-      const sdkUnavailable=()=>{ status='暂时无法加载登录服务'; redraw(); };
+      const sdkUnavailable=()=>{
+        if(authResolved)return;
+        clearTimeout(authTimeout);
+        status='暂时无法加载登录服务，请刷新后重试。';
+        redraw();
+        showFirstLogin();
+        updateLoginStatus();
+      };
+      authTimeout=setTimeout(sdkUnavailable,8000);
       sdk.addEventListener('load',()=>{
         try {
           client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce',storage:authStorage}});
           client.auth.onAuthStateChange((_,session)=>setTimeout(()=>sessionChanged(session),0));
+          void client.auth.getSession().then(({data,error})=>{
+            if(authResolved)return;
+            if(error)sdkUnavailable();else sessionChanged(data?.session);
+          }).catch(sdkUnavailable);
         } catch { sdkUnavailable(); }
       },{once:true});
       sdk.addEventListener('error',sdkUnavailable,{once:true});
@@ -367,7 +394,7 @@
         else if(!remote || signature()===last)void pull();
       });
     }
-    return {panel,onSave};
+    return {panel,onSave,openLogin};
   }
   return {snapshot,apply,mount};
 });

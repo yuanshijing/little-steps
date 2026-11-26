@@ -4,6 +4,9 @@
 })(globalThis, P => {
   'use strict';
   const minute = 60000;
+  function obsoleteBedtimeNotice(title) {
+    return /^(?:(?:还有一步需要确认|计划任务提醒|请确认状态|有空时看看这一件)[·：:–—-]?)?睡前回复(?:今天|今日)/.test(String(title??'').replace(/\s+/g,''));
+  }
   function addNotice(state, entry, now) {
     if (entry.taskId && ['scheduled', 'followup'].includes(entry.kind)) {
       for (const previous of state.inbox) {
@@ -38,6 +41,7 @@
     }
     // Follow-ups begin from delivery. Old due tasks do not trigger a burst when the app opens late.
     const eligible = candidates.find(({ task, item }) => {
+      if (obsoleteBedtimeNotice(task.title)) return false;
       if (!['pending', 'deferred'].includes(item.status) || item.acknowledged || P.blocked(state, task, item.day)) return false;
       if (item.noticeAt != null) {
         return item.followCount < P.bounded(settings.max, 0, 3, 2) &&
@@ -47,7 +51,7 @@
       return time >= due && time - due < 30 * minute;
     });
     const plan = state.plans[day];
-    if (plan && !plan.deliveredAt && (eligible || time >= P.dueAt(day, settings.nextDayTime))) {
+    if (settings.nextDayRemind !== false && plan?.items.length && !plan.deliveredAt && time >= P.dueAt(day, settings.nextDayTime)) {
       plan.deliveredAt = now.toISOString();
       const list = plan.items.map(row => row.when + ' ' + row.title + '｜' + row.firstStep);
       return addNotice(state, { kind: 'handoff', title: '昨晚确认的今日重点', list }, now);
@@ -57,7 +61,7 @@
     const follow = item.noticeAt != null;
     if (follow) item.followCount++;
     item.noticeAt = time;
-    const intros = { brief: '请确认状态', gentle: '有空时看看这一件', active: '到点确认一下' };
+    const intros = { brief: '请确认状态', gentle: '有空时看看这一件', active: '计划任务提醒' };
     return addNotice(state, {
       kind: follow ? 'followup' : 'scheduled', taskId: task.id, taskDay: item.day,
       title: (follow ? '还有一步需要确认' : (intros[settings.style] ?? intros.active)) + ' · ' + task.title,
@@ -96,5 +100,5 @@
     P.event(state, 'timer_finished', new Date(timer.endsAt), { mode: timer.mode });
     return 'finished';
   }
-  return { tick, acknowledge, addTransition, startTimer, timerTick };
+  return { tick, acknowledge, addTransition, startTimer, timerTick, obsoleteBedtimeNotice };
 });

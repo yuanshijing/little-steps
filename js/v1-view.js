@@ -16,26 +16,42 @@
     focusMin: '专注持续分钟', sleepLimit: '上床宽限分钟', returnLimit: '回归宽限分钟', returnMin: '回归持续分钟' };
   const readDuration = values => values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) + ' 分钟' : '暂无记录';
   const voice = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const coachStyles = [
+    ['active','主动监督','直接提醒当前要做的事，帮你回到下一步。'],
+    ['gentle','温柔陪伴','先回应你的状态，再一起找一个小动作。'],
+    ['brief','简洁指令','少说一点，直接给出下一步。'],
+  ];
 
-  const routes = {chat:'v1', schedule:'v1reminders', review:'v1review', library:'v1library', memory:'v1memory', ideas:'v1ideas'};
+  const routes = {chat:'v1', schedule:'v1reminders', review:'v1review', library:'v1library', ideas:'v1ideas'};
   function mount({ state: getState, page, save, render, go, toast, syncPanel }) {
     const vNow = () => V.init(getState());
     const date = () => P.dateKey();
     const api = location.protocol !== 'file:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
-    const publicModel = !api && location.protocol === 'https:' ? window.PlanetPublicDeepSeek : null;
+    const publicModel = !api && ['https:','file:'].includes(location.protocol) ? window.PlanetPublicDeepSeek : null;
     let day = date();
     let lastReview = '';
-    let modelOptions = [];
-    let modelStatus = api ? '检测本机模型连接中' : '基础教练模式 · 可在设置中连接 DeepSeek';
+    let modelChat = null, modelRequest = 0;
+    let speechSession=null;
+    const speechFeedback=new Map();
+    let micPermission;
+    if(voice) {
+      window.navigator?.permissions?.query({name:'microphone'}).then(permission=>{
+        micPermission=permission;
+      }).catch(()=>{ /* Some browsers cannot report microphone permissions. */ });
+    }
+    const micBlocked='请在浏览器的网站权限里允许麦克风，再点一次听写。';
+    let modelStatus = api ? '检测本机模型连接中' : '基础教练模式';
     let modelEnabled = false;
     let trial=null;
+    const usingTrial=()=>Boolean(trial && !publicModel?.status().enabled);
     window.addEventListener('planet-trial',event=>{
       if(!publicModel)return;
       trial=event.detail.ready ? event.detail : null;
       modelEnabled=Boolean(trial || publicModel.status().enabled);
-      modelStatus=trial ? '内测 DeepSeek · 研究方付费 · 今日 '+trial.used+'/'+trial.limit+' 次' :
+      modelStatus=publicModel.status().enabled ? 'DeepSeek 已连接 · 个人账户付费' :
+        trial ? '内测 DeepSeek · 研究方付费 · 今日 '+trial.used+'/'+trial.limit+' 次' :
         event.detail.eligible ? '已加入试用名单 · 等待后台启用模型' :
-        modelEnabled ? 'DeepSeek 已连接 · 个人账户付费' : '基础教练模式 · 可在设置中连接 DeepSeek';
+        modelEnabled ? 'DeepSeek 已连接 · 个人账户付费' : '基础教练模式';
       if(['v1','v1settings','v1review'].includes(page()) && !document.activeElement?.matches('input,textarea'))paint();
     });
     let todayTokens;
@@ -111,10 +127,12 @@
     }
     function chatPage(v) {
       const a = v.active;
-      const controls = a ? V.options(v).map(([label], i) => btn('choice', label, a.revision + '/' + i)).join('') : '';
-      const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : '';
-      const custom = a?.stage === 'wait' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
-      const timer = a?.id === 'bath' || v.timer ? timerView(v) : '';
+      const dynamic = modelChat?.v === v && modelChat.revision === a?.revision ? modelChat : null;
+      const fixed = a ? V.options(v).map(({id,label}) => btn('choice',label,a.revision+'/'+id)).join('') : '';
+      const controls = dynamic ? dynamic.options.map((label,i)=>btn('modelOption',label,String(i))).join('') : fixed;
+      const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : '';
+      const custom = a?.stage === 'wait' && a.id!=='wake' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
+      const timer = (a?.id === 'bath' && a.stage === 'bathTimer') || v.timer ? timerView(v) : '';
       const paused = getState().settings.pausedUntil > Date.now();
       const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
         .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
@@ -126,23 +144,29 @@
           `<div class="review-prompt"><strong>${esc(V.title(v,row.id))} · 待处理</strong>
           ${btn('open','处理这条提醒',row.id)}</div>`).join('')}
         ${reviewPrompts.map(([key,row])=>`<div class="review-prompt"><strong>${row.kind==='daily'?'睡前复盘':'每周复盘'}</strong>
-        <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview','开始复盘',key,true) : ''}
-        ${row.pending ? btn('dismissReview','暂时跳过',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
-        ${a ? `<p><b>${esc(V.title(v, a.id))}</b> <span class="subtle">${esc(due)}</span></p>
-        ${a.stage !== 'initial' ? `<p>${esc(V.phases[a.stage]?.[0] ?? '')}</p>` : ''}
-        <div class="controls">${controls}${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认时间')}
-        ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}${btn('remindOff','关闭该环节提醒')}</div>${custom}` : ''}
-        ${modelOptions.length ? '<div class="controls">' + modelOptions.filter(row=>row.revision===v.active?.revision).map(row=>btn('modelOption',row.text,row.text)).join('') + '</div>' : ''}
+        <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview',row.kind==='daily'?'开始简短复盘':'开始每周复盘',key,true) : ''}
+        ${row.pending ? btn('dismissReview',row.kind==='daily'?'今晚跳过':'稍后再看',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
+        ${a ? `<p><b>${esc(V.title(v,a.id))}</b> <span class="subtle">${esc(due)}</span></p>` : ''}
+        ${controls ? (a?.stage==='sustain' && !dynamic
+          ? `<details><summary>确认专注进展</summary><div class="controls">${controls}</div></details>`
+          : `${a && a.stage!=='initial' && !dynamic && !a.prompt ? '<p>'+esc(V.phases[a.stage]?.question ?? '')+'</p>' : ''}
+            <div class="controls">${controls}</div>`) : ''}
+        ${a ? `<details${a.stage==='wait'?' open':''}><summary>更多操作</summary><div class="controls">
+          ${dynamic ? btn('fixedOptions','使用状态选项') : ''}
+          ${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认')}
+          ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}
+          ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
+          ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>` : ''}
         <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
-        <div class="controls"><button class="primary">${trial ? '发给小星 · 试用' : '发给小星'}</button>${voice ? btn('voice','语音输入','v1-input') : ''}
-        ${(!trial && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
+        <div class="controls"><button class="primary">${usingTrial() ? '发给小星 · 试用' : '发给小星'}</button>${voiceButton('v1-input')}
+        ${(!usingTrial() && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
         ${(api || modelEnabled) ? '<p class="subtle">使用模型会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
           <button type="button" class="secondary small" data-act="page" data-target="focus">启动与专注计时</button>
           ${btn('tab','查看定时提醒','schedule')}
-          ${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</div>`) +
+          ${!a ? `<details><summary>更多操作</summary>${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</details>` : ''}</div>`) +
         '</aside></div>';
     }
     function timerView(v) {
@@ -154,18 +178,23 @@
     function schedulePage(v) {
       const state = getState();
       const removed = V.allReminderIds(v).filter(id => v.settings.times[id].removed);
-      return card('固定提醒和自定义任务', `<p class="notice">保持网页打开，小星会在设定时间主动发消息。你也可以点「现在聊聊」提前进入对应对话。后台标签页可能延迟，关闭网页后暂时无法推送。${state.settings.pausedUntil > Date.now() ? ' 监督目前已暂停。' : !state.settings.remind ? ' 自动提醒目前已关闭。' : ''}</p>
-        <form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
+      return card('固定提醒和自定义任务', `<form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
         <fieldset class="reminder-group reminder-add"><legend>新增每天提醒的任务</legend>
         <div id="reminder-drafts"></div>${btn('addReminder','＋ 添加一项')}<p class="subtle">可连续添加多项。最后点「保存提醒」统一生效。</p></fieldset>
         ${removed.length ? `<details class="reminder-details"><summary>已移除的提醒</summary>${removed.map(id=>`<label><input type="checkbox" name="restore_${esc(id)}"> 恢复${esc(V.title(v,id))}</label>`).join('')}</details>` : ''}
         <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
         <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
+        ${number('follow','计划任务跟进间隔（分钟）',state.settings.follow,1,60)}
+        ${number('max','计划任务最多追加提醒',state.settings.max,0,3)}
         ${when('wrap_am','上午收尾确认',v.settings.wrapTimes?.am??'11:50')}${when('wrap_pm','下午收尾确认',v.settings.wrapTimes?.pm??'18:15')}</div></details>
         <details class="reminder-details"><summary>每周复盘提醒</summary><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
           `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div></details>
         <label><input type="checkbox" name="remind" ${state.settings.remind ? 'checked' : ''}> 启用自动提醒</label>
-        <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>`);
+        <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>
+        <div class="reminder-plan-link">
+          <p class="subtle">每天同一时间提醒，用上面的「新增每天提醒的任务」。只在指定日期或工作日做、需要前置任务或拆步骤，用下面的「计划任务与作息」。同一件事填一处即可。</p>
+          <button type="button" class="secondary small" data-act="page" data-target="plan">管理计划任务与作息</button>
+        </div>`);
     }
     function settingsPage(v) {
       return card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
@@ -179,14 +208,20 @@
         <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
         <button class="primary">保存音效和奖励设置</button></form>`) +
-        card('教练偏好与数据', `<div class="controls">
-          <button type="button" class="secondary small" data-act="page" data-target="settings">教练风格与数据导出</button>
-          ${getState().tasks.some(task => !task.archived) ? '<button type="button" class="secondary small" data-act="page" data-target="plan">管理已有的自定义任务</button>' : ''}</div>`) +
-        card('模型连接', `<p>${esc(modelStatus)}</p>${trial ? '<p class="subtle">试用次数由后台按账号计算，每天北京时间零点更新。</p>' : (api || publicModel) ? (modelEnabled ? (api ? btn('connection','测试已配置模型') : btn('disconnectModel','断开 DeepSeek')) : '') +
-          `<form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
+        card('教练风格', `<div class="coach-style-options" role="radiogroup" aria-label="小星的教练风格">
+          ${coachStyles.map(([value,label,description])=>`<label class="coach-style-choice">
+            <input type="radio" name="coach-style" data-coach-style value="${value}" ${getState().settings.style===value?'checked':''}>
+            <span><strong>${label}</strong><small>${description}</small></span>
+          </label>`).join('')}</div>`) +
+        memorySettings(v) +
+        ((trial || api || publicModel) ? card('模型连接', `<p>${esc(modelStatus)}</p>${usingTrial() ? '<p class="subtle">当前使用试用额度，也可以连接自己的密钥。</p>' : ''}
+          ${publicModel?.status().enabled ? btn('disconnectModel','断开个人 DeepSeek') : api && modelEnabled ? btn('connection','测试已配置模型') : ''}
+          <form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
           <input class="field" type="password" name="key" placeholder="sk-…" required maxlength="223" autocomplete="off" spellcheck="false"></label>
           <p class="subtle">${api ? '测试发送一条示例问题。密钥保存在本机服务的内存中，关闭服务后需要重新填写。' : '测试会向 DeepSeek 发送一条示例问题，并计入你自己的 DeepSeek 用量。密钥只在当前页面的内存中使用，刷新或关闭页面后需要重新填写。'}</p>
-          <button class="primary">连接并测试 DeepSeek</button></form>` : '<p>在 HTTPS 网站上打开设置即可连接 DeepSeek。</p>'}`);
+          <button class="primary">连接并测试 DeepSeek</button></form>`) : '') +
+        card('本地数据', `<div class="controls"><button type="button" class="secondary small" data-act="export">导出数据</button>
+          <button type="button" class="danger small" data-act="reset">清除本地数据</button></div>`);
     }
     function reviewInput(v,kind,reviewDay,note) {
       const stats = kind === 'weekly' ? V.weekly(v,reviewDay) : null;
@@ -220,7 +255,7 @@
           : '<p class="subtle">当前未连接大模型服务。</p>'}</section>`;
     }
     async function callModel(route,input) {
-      if (trial) return window.PlanetTrial.run(route,input);
+      if (usingTrial()) return window.PlanetTrial.run(route,input);
       if (publicModel) return publicModel.run(route,input);
       const response = await fetch('/api/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json'},
         signal:AbortSignal.timeout(25000),body:JSON.stringify(input)});
@@ -260,36 +295,51 @@
       const dayRows = V.dailyRows(v, day);
       const todayCases = v.events.filter(event => event.day === day && event.type === 'detour');
       const tomorrow = P.shiftDate(date(), 1);
-      const plan = getState().plans[tomorrow]?.items ?? [];
+      const state=getState(), plan=state.plans[tomorrow]?.items ?? [];
+      const remindPlan=state.settings.nextDayRemind!==false;
       const stamp = xs => xs.map(n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0')).join('、') || '暂无记录';
+      const timingMetrics=[
+        ['平均启动延迟',readDuration(report.delays)],['上周平均启动延迟',readDuration(report.previousDelays)],
+        ['平均洗澡用时',readDuration(report.durations)],['起床时间',stamp(report.wakeTimes)],['上床时间',stamp(report.bedTimes)],
+        ['偏航与回归','偏航 '+report.cases.length+' 次 · 回归 '+report.returns+' 次'],
+      ];
+      const reviewBlock=(heading,body)=>`<section class="weekly-detail-card"><h3>${heading}</h3><div class="weekly-detail-body">${body}</div></section>`;
       return `<nav class="review-navigation" aria-label="复盘入口"><a class="secondary small" href="#daily-review">每日复盘</a>
-        <a class="secondary small" href="#tomorrow-plan">明日重点</a><a class="secondary small" href="#weekly-review">每周复盘</a>
-        ${btn('tab','查看长期记忆','memory')}</nav>` +
+        <a class="secondary small" href="#tomorrow-plan">明日重点</a><a class="secondary small" href="#weekly-review">每周复盘</a></nav>` +
         '<div id="daily-review">' +
         card('每日复盘', `<label class="review-date">查看日期<input class="field" type="date" id="v1-review-date" value="${esc(day)}"></label>
         ${reviewSummary(v,'daily',day)}
-        <h3>任务记录</h3><ul class="daily-records">${dayRows.map(task => `<li><strong>${esc(task.title)}</strong><span>${task.completedAt ? new Date(task.completedAt).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) + ' · ' : ''}${esc(task.status)}</span></li>`).join('')}</ul>
+        <h3 class="daily-records-heading">任务记录</h3><ul class="daily-records">${dayRows.map(task => `<li><span class="daily-record-title">${esc(task.title)}</span><span class="daily-record-status">${task.completedAt ? new Date(task.completedAt).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) + ' · ' : ''}${esc(task.status)}</span></li>`).join('')}</ul>
         <div class="review-note"><h3>偏航与恢复 · ${todayCases.length} 次</h3>
         ${todayCases.length ? '<ul>' + todayCases.map(c=>'<li>' + esc(c.obstacle + ' · 尝试 ' + c.strategy) + '</li>').join('') + '</ul>' : '<p>暂无偏航记录</p>'}
         <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p></div>
         <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note">${esc(row?.note)}</textarea></label>
-        <div class="controls"><button class="primary">保存复盘</button>${btn('skipReview','跳过详细复盘')}${voice ? btn('voice','语音输入','v1-reflection') : ''}</div></form>
+        <div class="controls"><button class="primary">保存复盘</button>${btn('skipReview','跳过详细复盘')}${voiceButton('v1-reflection')}</div></form>
         ${row ? '<p class="subtle">' + (row.skipped ? '已跳过详细复盘' : '复盘已保存') + '</p>' : ''}`) +
         '</div><div id="tomorrow-plan">' +
-        card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow"><p class="subtle">最多三项，次日起床或上午提醒会附上。也可以在复盘里分行写「明天：任务」，再提取。</p>
+        card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow">
+        <input type="hidden" name="planDay" value="${tomorrow}">
+        <p class="subtle">最多填写三项，次日起床提醒会显示这些重点。网页运行时，「计划时间」可触发站内提醒，这些重点不会加入「定时提醒」清单或发送邮件。「第一步」是提醒里显示的具体起手动作。也可以在复盘里分行写「明天：任务」，再提取。</p>
         ${btn('extract','从复盘提取明日重点')}${[0,1,2].map(i => `<fieldset><legend>重点 ${i+1}</legend>
-          ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${when('when'+i,'时间',plan[i]?.when ?? '09:00')}
-          ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}</fieldset>`).join('')}<button class="primary">确认明日清单</button></form>`) +
+          ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${input('when'+i,'计划时间',plan[i]?.when ?? '09:00','type="time"')}
+          ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}
+          ${btn('clearTomorrow','移除重点 '+(i+1),String(i))}</fieldset>`).join('')}
+          <div class="tomorrow-time">
+            <label class="tomorrow-remind"><input type="checkbox" name="nextDayRemind" data-tomorrow-remind ${remindPlan?'checked':''}> 提示整份明日重点</label>
+            ${input('nextDayTime','提示时间',state.settings.nextDayTime,'type="time" required'+(remindPlan?'':' disabled'))}
+            <p class="subtle">勾选后，次日网页运行时会在指定时间额外提示整份重点。各项计划时间仍单独生效。</p>
+          </div>
+          <button class="primary">保存明日重点</button></form>`) +
         '</div><div id="weekly-review">' +
         card('每周复盘 · 最近七天', `${reviewSummary(v,'weekly',day)}${v.weekNotes?.[day] ? '<p><strong>你在对话中补充</strong> · '+esc(v.weekNotes[day])+'</p>' : ''}
-        <p>平均启动延迟 ${readDuration(report.delays)} · 上一周 ${readDuration(report.previousDelays)} · 平均洗澡用时 ${readDuration(report.durations)}</p>
-        <p>起床时间 ${esc(stamp(report.wakeTimes))}</p><p>上床时间 ${esc(stamp(report.bedTimes))}</p>
-        <p>偏航记录 ${report.cases.length} · 确认回归 ${report.returns}</p>
-        <h3>任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><strong>${esc(V.title(v,s.id))}</strong><span>普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
-        <h3>代表性案例</h3>${report.cases.slice(-4).map(e => `<p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}
-        ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</p>`).join('') || '<p>暂无案例</p>'}
-        <h3>已确认回归时尝试的策略</h3><p>${esc(report.strategies.join('；') || '暂无记录')}</p>
-        <h3>下一周可试</h3><p>${esc(report.suggested.join('；') || '先记录一次真实的中断和恢复过程。')}</p>`) + '</div>';
+        <dl class="weekly-metrics">${timingMetrics.map(([label,value])=>`<div><dt>${label}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>
+        <h3 class="weekly-records-heading">任务完成情况</h3><ul class="weekly-records">${report.stats.map(s => `<li><span class="weekly-record-title">${esc(V.title(v,s.id))}</span><span class="weekly-record-stats">普通 ${s.completed - s.advanced} · 进阶 ${s.advanced} · 未完成 ${s.incomplete} · 跳过 ${s.skipped} · 未记录 ${s.missing} · 完成率 ${s.rate == null ? '暂无' : Math.round(s.rate*100)+'%'}</span></li>`).join('')}</ul>
+        <div class="weekly-detail-grid">
+        ${reviewBlock('代表性案例',report.cases.slice(-4).map(e => `<div class="weekly-case"><p>${esc(e.day+' · '+e.obstacle+'（'+e.source+'） · '+e.strategy+' · '+e.outcome)}</p>
+        ${v.settings.memory && e.outcome==='已确认回归' ? btn('rememberCase','存入长期记忆',e.at) : ''}</div>`).join('') || '<p class="subtle">暂无案例</p>')}
+        ${reviewBlock('回归记录中的策略',`<p>${esc(report.strategies.join('；') || '暂无记录')}</p>`)}
+        ${reviewBlock('下周可试',`<p>${esc(report.suggested.join('；') || '先记录一次真实的中断和恢复过程。')}</p>`)}
+        </div>`) + '</div>';
     }
     function libraryPage(v) {
       const current = V.chooseQuote(v, date());
@@ -315,8 +365,8 @@
         <div class="controls"><button class="primary">保存并回到原任务</button>${voice ? btn('voice','语音记录','v1-idea') : ''}</div></form>
         ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`);
     }
-    function memoryPage(v) {
-      return card('小星记住的内容', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
+    function memorySettings(v) {
+      return card('长期记忆', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
         <p class="subtle">确认后才保存。你可以修改类别、文字或删除。仅在明确调用模型时提供相关条目。</p>
         ${[...v.memory,{id:'',text:'',source:'用户自述',scene:'all'}].map(row=>`<form data-v1-form="memory" class="v1-memory-row">
           <input type="hidden" name="id" value="${esc(row.id)}">${input('text',row.id?'编辑记忆':'添加记忆',row.text,'required maxlength="320"')}
@@ -326,7 +376,7 @@
     }
     function screen(section) {
       const v = vNow();
-      return ({chat:chatPage,schedule:schedulePage,settings:settingsPage,review:reviewPage,library:libraryPage,memory:memoryPage,ideas:ideasPage}[section])(v);
+      return ({chat:chatPage,schedule:schedulePage,settings:settingsPage,review:reviewPage,library:libraryPage,ideas:ideasPage}[section])(v);
     }
     function paint() {
       const draft = document.getElementById('v1-input')?.value;
@@ -400,7 +450,10 @@
       s.weekDay = P.bounded(data.weekDay,0,6,0);
       if (P.timeOk(data.weekTime)) s.weekTime = data.weekTime;
       if (P.timeOk(data.wrap_am) && P.timeOk(data.wrap_pm)) s.wrapTimes = {am:data.wrap_am,pm:data.wrap_pm};
-      getState().settings.remind = Boolean(data.remind);
+      const settings=getState().settings;
+      settings.follow=P.bounded(data.follow,1,60,settings.follow);
+      settings.max=P.bounded(data.max,0,3,settings.max);
+      settings.remind = Boolean(data.remind);
       toast(drafts.length ? '已新增 ' + drafts.length + ' 项提醒' : '提醒设置已保存');
     }
     function addReminderDraft() {
@@ -426,14 +479,64 @@
     }
     function sortReminderRows(field) {
       const list = document.getElementById('reminder-list');
+      if (!list || V.manualReminderOrder(vNow()).length) return;
       const rows = [...list.children];
       const rank = row=>V.reminderTimeOrder(row.querySelector('[data-reminder-time]').value);
       const sorted = rows.slice().sort((a,b)=>rank(a)-rank(b));
       if (sorted.every((row,index)=>row===rows[index])) return;
-      const focused = document.activeElement === field;
+      const focused = field && document.activeElement === field;
       list.append(...sorted);
       if (focused) field.focus({preventScroll:true});
     }
+    function moveReminder(row, destination) {
+      const list=row.parentElement;
+      const rows=[...list.children];
+      const index=rows.indexOf(row), target=rows[destination];
+      if (!target || destination===index) return;
+      list.insertBefore(row,destination<index?target:target.nextElementSibling);
+      vNow().settings.reminderOrder=[...list.children].map(node=>node.dataset.savedReminder);
+      const status=document.getElementById('reminder-order-status');
+      if(status)status.textContent='已移到第 '+(destination+1)+' 项，当前按手动顺序排列。';
+      save();
+    }
+    let reminderDrag=null;
+    document.addEventListener('pointerdown',e=>{
+      const grip=e.target.closest('[data-reminder-grip]');
+      if(!grip || !e.isPrimary || e.button!==0)return;
+      const row=grip.closest('[data-saved-reminder]');
+      grip.setPointerCapture(e.pointerId);
+      reminderDrag={row,grip,id:e.pointerId,startY:e.clientY,target:null};
+    });
+    document.addEventListener('pointermove',e=>{
+      const drag=reminderDrag;
+      if(!drag || e.pointerId!==drag.id || !drag.row.isConnected || (!drag.target && Math.abs(e.clientY-drag.startY)<6))return;
+      const rows=[...drag.row.parentElement.children];
+      const target=rows.find(row=>e.clientY<row.getBoundingClientRect().bottom) ?? rows.at(-1);
+      if(drag.target!==target)drag.target?.classList.remove('reminder-drop-target');
+      drag.target=target;
+      target.classList.toggle('reminder-drop-target',target!==drag.row);
+    });
+    function finishReminderDrag(e) {
+      const drag=reminderDrag;
+      if(!drag || e.pointerId!==drag.id)return;
+      reminderDrag=null;
+      drag.target?.classList.remove('reminder-drop-target');
+      if(e.type==='pointerup' && drag.target && drag.row.isConnected && drag.target.parentElement===drag.row.parentElement){
+        moveReminder(drag.row,[...drag.row.parentElement.children].indexOf(drag.target));
+        drag.grip.focus({preventScroll:true});
+      }
+    }
+    document.addEventListener('pointerup',finishReminderDrag);
+    document.addEventListener('pointercancel',finishReminderDrag);
+    document.addEventListener('lostpointercapture',finishReminderDrag);
+    document.addEventListener('keydown',e=>{
+      const grip=e.target.closest('[data-reminder-grip]');
+      if(!grip || !['ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();
+      const row=grip.closest('[data-saved-reminder]');
+      moveReminder(row,[...row.parentElement.children].indexOf(row)+(e.key==='ArrowUp'?-1:1));
+      grip.focus({preventScroll:true});
+    });
     document.addEventListener('pointerdown',()=>{
       if (audio?.state !== 'running') void armAudio().catch(()=>{});
     });
@@ -449,18 +552,85 @@
       s.volume = P.bounded(data.volume,0,200,125);
       toast('奖励设置已保存');
     }
+    function voiceButton(id) {
+      if(!voice)return '';
+      const active=speechSession?.id===id;
+      const label=active?'结束语音输入':'开始语音输入';
+      return `<button type="button" class="secondary voice-button" data-v1="voice" data-value="${id}"
+        aria-label="${label}" aria-pressed="${active}" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>
+        <span class="subtle voice-feedback" id="${id}-voice-feedback" role="status">${esc(speechFeedback.get(id)??'')}</span>`;
+    }
+    function updateSpeech(id,text) {
+      speechFeedback.set(id,text);
+      const feedback=document.getElementById(id+'-voice-feedback');
+      if(feedback)feedback.textContent=text;
+      const button=document.querySelector(`[data-v1="voice"][data-value="${id}"]`);
+      if(!button)return;
+      const active=speechSession?.id===id, label=active?'结束语音输入':'开始语音输入';
+      button.setAttribute('aria-pressed',String(active));
+      button.setAttribute('aria-label',label);
+      button.title=label;
+    }
     function recognize(id) {
-      const el = document.getElementById(id);
-      if (!voice || !el) return;
-      const speech = new voice();
-      speech.lang = 'zh-CN';
-      speech.onresult = e => { el.value = (el.value + ' ' + e.results[0][0].transcript).trim(); };
-      speech.onerror = () => toast('未收到语音，请检查麦克风权限或改用文字');
-      speech.start();
+      if (!voice || !document.getElementById(id)) return;
+      if(speechSession) {
+        if(speechSession.id===id && speechSession.listening && !speechSession.stopping) {
+          speechSession.stopping=true;
+          updateSpeech(id,'正在转写…');
+          try { speechSession.recognizer.stop(); }
+          catch {
+            speechSession.stopping=false;
+            updateSpeech(id,'还在听，可以稍后再点一次结束。');
+          }
+        } else if(speechSession.id!==id) {
+          updateSpeech(id,'请先结束正在使用的麦克风。');
+        }
+        return;
+      }
+      if(micPermission?.state==='denied'){
+        updateSpeech(id,micBlocked);
+        return;
+      }
+      const recognizer=new voice();
+      const session={id,recognizer,listening:false,stopping:false,received:false};
+      speechSession=session;
+      const finish=text=>{
+        if(speechSession!==session)return;
+        speechSession=null;
+        updateSpeech(id,text);
+      };
+      recognizer.lang='zh-CN';
+      recognizer.onstart=()=>{
+        if(speechSession!==session)return;
+        session.listening=true;
+        updateSpeech(id,'正在听，再按一次麦克风停止听写。');
+      };
+      recognizer.onresult=event=>{
+        if(speechSession!==session)return;
+        const transcript=Array.from(event.results).slice(event.resultIndex??0)
+          .filter(result=>result.isFinal!==false).map(result=>result[0]?.transcript??'').join('').trim();
+        const field=document.getElementById(id);
+        if(!transcript||!field)return;
+        const combined=(field.value+' '+transcript).trim();
+        field.value=field.maxLength>0?combined.slice(0,field.maxLength):combined;
+        session.received=true;
+        field.focus({preventScroll:true});
+      };
+      recognizer.onerror=event=>finish({
+        'not-allowed':micBlocked,
+        'service-not-allowed':'当前浏览器无法使用语音识别服务。',
+        'audio-capture':'没有检测到可用的麦克风。',
+        'no-speech':'没有听清，请再点一次麦克风。',
+        network:'语音识别服务暂时连不上，可以先打字。',
+      }[event.error]??'语音识别未完成，可以再试一次。');
+      recognizer.onend=()=>finish(session.received?'已填入输入框，可以检查后再保存或发送。':'没有收到语音，请再试一次。');
+      updateSpeech(id,'正在启动麦克风…');
+      try { recognizer.start(); }
+      catch { finish('无法启动麦克风，请检查浏览器权限。'); }
     }
     function usageLabel() {
       if (!modelEnabled) return '今日累计用量 · 未连接大模型';
-      if (trial) return '今日试用用量 · '+trial.tokens+' Token';
+      if (usingTrial()) return '今日试用用量 · '+trial.tokens+' Token';
       if (publicModel) todayTokens = publicModel.status().todayTokens;
       return '今日累计用量 · ' + (Number.isFinite(todayTokens) ? todayTokens.toLocaleString('zh-CN') + ' Token' : '用量暂不可用') + (publicModel ? ' · 当前页面' : '');
     }
@@ -471,7 +641,7 @@
     }
     async function refreshUsage() {
       if (!modelEnabled) return;
-      if (trial) return window.PlanetTrial.refresh();
+      if (usingTrial()) return window.PlanetTrial.refresh();
       if (publicModel) return updateUsage(publicModel.status());
       try {
         const response = await fetch('/api/v1/config',{signal:AbortSignal.timeout(5000)});
@@ -527,36 +697,43 @@
         button.textContent = '连接并测试 DeepSeek';
       }
     }
-    async function guideFixed(state,v,guidance) {
-      if(!guidance || !modelEnabled && !api)return;
-      const {input,revision}=guidance;
+    function clearModelChat() {
+      modelChat=null;
+      modelRequest++;
+    }
+    async function showModel(state,v,input,revision,fallback) {
+      const request=++modelRequest;
+      const current=()=>getState()===state && v.active?.revision===revision && modelRequest===request;
       try {
         const value=await callModel('coach',input);
-        if(typeof value.reply!=='string' || getState()!==state || v.active?.revision!==revision)return;
-        V.message(v,value.reply,'coach',{reminderId:input.reminderId,at:Date.now()});
-        modelOptions=Array.isArray(value.quickReplies) ? value.quickReplies.map(text=>({text,revision})) : [];
-      } catch { /* Keep the current fixed branch response. */ }
-      finally {if(getState()===state){if(page()==='v1')paint();else save();}void refreshUsage();}
+        if(typeof value.reply!=='string' || !value.reply.trim())throw Error('无可用回复');
+        if(!current())return;
+        const detail={thread:v.active?.thread,reminderId:input.reminderId,at:Date.now()};
+        if(fallback)fallback.text=value.reply;
+        else V.message(v,value.reply,'coach',detail);
+        const options=Array.isArray(value.quickReplies) ? [...new Set(value.quickReplies
+          .filter(text=>typeof text==='string' && text.trim() && text.length<=50).map(text=>text.trim()))].slice(0,3):[];
+        modelChat={v,revision,options};
+      } catch {
+        if(current())modelChat=null;
+      } finally {
+        if(current()){if(page()==='v1')paint();else save();}
+        void refreshUsage();
+      }
     }
-    async function reply(text, useModel) {
-      const v = vNow();
-      const result = V.free(getState(), text);
-      if (!result) return;
-      modelOptions = [];
-      const fallback = v.messages.at(-1);
-      const current = v.active?.revision;
-      if ((!api && !modelEnabled) || !useModel || result !== 'fallback') return;
-      try {
-        const scene = v.active?.id ?? 'all';
-        const memories = v.settings.memory ? v.memory.filter(m=>m.scene===scene || m.scene==='all').slice(-4) : [];
-        const value = await callModel('coach',V.modelContext(getState(),text) ?? {text, scene:V.isCustom(v,scene) ? 'all' : scene, status:v.active?.stage || '', style:getState().settings.style,
-          schedule:v.settings.times, plan:V.planText(getState(),date()), recent:v.messages.slice(-5,-1), memories});
-        if (typeof value.reply !== 'string') throw new Error();
-        if (vNow() !== v || v.active?.revision !== current) return;
-        fallback.text = value.reply;
-        modelOptions = Array.isArray(value.quickReplies) ? value.quickReplies.map(text=>({text,revision:current})) : [];
-      } catch (error) { fallback.text = (trial ? error.message : '模型暂不可用') + '。以下是基础教练建议。\n' + fallback.text; }
-      finally { if (page() === 'v1') paint(); else save(); void refreshUsage(); }
+    function guideFixed(state,v,guidance) {
+      if(guidance && (modelEnabled || api))void showModel(state,v,guidance.input,guidance.revision);
+    }
+    async function reply(text,useModel) {
+      const state=getState(),v=vNow();
+      clearModelChat();
+      const result=V.free(state,text);
+      if(result!=='fallback' || !useModel || (!api && !modelEnabled))return;
+      if(v.active && (v.active.fixedTrace?.length ?? 0)<2)return;
+      const fallback=v.messages.at(-1),revision=v.active?.revision;
+      const input=V.modelContext(state,text);
+      if(input.recent.at(-1)===fallback)input.recent=input.recent.slice(0,-1);
+      await showModel(state,v,input,revision,fallback);
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
@@ -567,10 +744,18 @@
         if (name === 'tab') return selectTab(value);
         if (name === 'addReminder') return addReminderDraft();
         if (name === 'removeReminder') return removeReminderRow(b);
+        if (name === 'reminderTimeSort') {
+          delete v.settings.reminderOrder;
+          sortReminderRows();
+          const status=document.getElementById('reminder-order-status');
+          if(status)status.textContent='当前按时间排序，从早上 06:00 开始。';
+          save();
+          return;
+        }
         if (name === 'disconnectModel' && publicModel) {
           publicModel.disconnect();
-          modelEnabled = false;
-          modelStatus = '基础教练模式 · 可在设置中连接 DeepSeek';
+          modelEnabled=Boolean(trial);
+          modelStatus=trial ? '内测 DeepSeek · 研究方付费' : '基础教练模式';
           paint();
           return;
         }
@@ -591,7 +776,11 @@
           }
           return;
         }
-        if (name === 'dismissReview') V.finishReview(v,value);
+        if (name === 'dismissReview') {
+          const prompt=v.reviewPrompts?.[value];
+          if(prompt?.kind==='daily')v.reviews[prompt.day] ??= {skipped:true};
+          V.finishReview(v,value);
+        }
         if (name === 'emotion') {
           const field = document.getElementById('v1-input');
           field.placeholder = '比如：我现在觉得很烦，脑子里总在想……';
@@ -618,23 +807,29 @@
         }
         if (name === 'open') {
           const opened = V.open(state,value);
-          modelOptions=[];
+          clearModelChat();
           if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
           if (page() !== 'v1') selectTab('chat');
         }
         if (name === 'choice') {
-          const [revision,index]=value.split('/');
+          const [revision,optionId]=value.split('/');
           const record = v.records[v.active?.key];
           const wasComplete = record?.completedAt != null;
-          const r=V.choose(state,revision,Number(index));
+          const r=V.choose(state,revision,optionId);
+          if (!r) return;
           if (r?.award) reward(r.award);
           else if (r && !wasComplete && record?.completedAt != null) playCompletionSound();
-          modelOptions=[];
-          if(r?.guidance)void guideFixed(state,v,r.guidance);
+          clearModelChat();
+          if(r.guidance)guideFixed(state,v,r.guidance);
         }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
-        if (name === 'remindOff' && v.settings.times[v.active?.id]) { v.settings.times[v.active.id].enabled=false; V.park(v,'主动跳过'); }
-        if (name === 'pause') { state.settings.pausedUntil = Date.now()+3600000; toast('已暂停监督一小时'); }
+        if (name === 'remindOff' && v.settings.times[v.active?.id]) {
+          if (!window.confirm('关闭「'+V.title(v,v.active.id)+'」的后续提醒？'))return;
+          v.settings.times[v.active.id].enabled=false;
+          V.park(v,'未记录');
+          clearModelChat();
+        }
+        if (name === 'pause') { state.settings.pausedUntil=Date.now()+3600000; V.park(v,'暂时延迟'); clearModelChat(); toast('已暂停监督一小时'); }
         if (name === 'resume') { state.settings.pausedUntil = 0; toast('已恢复监督'); }
         if (name === 'agreeTime') V.agreeTime(v);
         if (name === 'timer') V.timerAction(v,value);
@@ -652,7 +847,18 @@
           }
         }
         if (name === 'removeIdea') v.ideas=v.ideas.filter(row=>row.id!==value);
-        if (name === 'modelOption') void reply(value,true);
+        if (name === 'clearTomorrow') {
+          const fields=b.form.elements;
+          fields['title'+value].value='';
+          fields['when'+value].value='09:00';
+          fields['step'+value].value='';
+          return;
+        }
+        if (name === 'fixedOptions') clearModelChat();
+        if (name === 'modelOption') {
+          const selection=modelChat?.v===v && modelChat.revision===v.active?.revision ? modelChat.options[Number(value)] : null;
+          if (selection) void reply(selection,true);
+        }
         if (name === 'extract') {
           const form=document.querySelector('[data-v1-form="tomorrow"]');
           const draft=C.draft(document.getElementById('v1-reflection')?.value || lastReview);
@@ -664,6 +870,15 @@
     });
     document.addEventListener('change', e => {
       const el=e.target,v=vNow();
+      if(el.matches('[data-tomorrow-remind]')){
+        el.form.elements.nextDayTime.disabled=!el.checked;
+        return;
+      }
+      if(el.matches('[data-coach-style]') && el.checked && coachStyles.some(([value])=>value===el.value)){
+        getState().settings.style=el.value;
+        save();
+        return;
+      }
       if (el.matches('[data-reminder-time]')) sortReminderRows(el);
       if (el.id==='v1-review-date' && el.value) {day=el.value; paint();}
       if (el.id==='v1-memory-on') {v.settings.memory=el.checked;save();}
@@ -685,7 +900,7 @@
             if (configureSchedule(data) === false) return;
             break;
           case 'settings': configureRewards(data); break;
-          case 'chat': void reply(data.message,Boolean(trial)||e.submitter?.value==='model'); form.reset(); break;
+          case 'chat': void reply(data.message,usingTrial()||Boolean(modelChat)||e.submitter?.value==='model'); form.reset(); break;
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
           case 'daily':
@@ -694,9 +909,20 @@
             V.finishReview(v,'daily/'+day);
             V.achievements(state,new Date());toast('复盘已保存');break;
           case 'tomorrow': {
-            const rows=[0,1,2].map(i=>({title:data['title'+i],when:data['when'+i],firstStep:data['step'+i]})).filter(row=>row.title.trim());
-            P.savePlan(state,P.shiftDate(date(),1),rows,lastReview);
-            toast('明日任务清单已确认'); break;
+            const now=new Date(),planDay=data.planDay;
+            if(planDay!==P.shiftDate(P.dateKey(now),1))return toast('日期已变化，请刷新后再保存。');
+            const remind=Boolean(data.nextDayRemind);
+            if(remind && !P.timeOk(data.nextDayTime))return toast('请填写有效的提示时间');
+            const rows=[0,1,2].map(i=>({title:data['title'+i].trim(),when:data['when'+i],firstStep:data['step'+i].trim()}))
+              .filter(row=>row.title||row.firstStep);
+            const old=state.plans[planDay], previous=old?.items??[];
+            if(!rows.length)P.clearPlan(state,planDay,now);
+            else if(rows.length!==previous.length || rows.some((row,i)=>['title','firstStep','when'].some(key=>row[key]!==previous[i][key]))) {
+              P.savePlan(state,planDay,rows,lastReview||old?.reflection||'',now,old?.progress??[]);
+            }
+            state.settings.nextDayRemind=remind;
+            if(P.timeOk(data.nextDayTime))state.settings.nextDayTime=data.nextDayTime;
+            toast('明日重点已保存'); break;
           }
           case 'quote': if(data.theme.trim()&&data.a.trim()&&data.b.trim()) v.customQuotes.push({id:P.uid(),theme:data.theme.trim(),lines:[data.a.trim(),data.b.trim()]});break;
           case 'quoteSchedule': {

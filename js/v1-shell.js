@@ -17,17 +17,18 @@
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
     recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星对话',
     v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '定时提醒',
-    v1memory: '长期记忆', v1ideas: '灵感暂存',
+    v1ideas: '灵感暂存',
   };
   const home = byId('view');
   const inbox = document.createElement('section');
   inbox.id = 'supervision';
-  inbox.setAttribute('aria-label', '主动监督提醒');
-  home.before(inbox);
+  inbox.setAttribute('aria-label', '计划任务提醒');
+  home.after(inbox);
   let state;
   try { state = P.read(localStorage); }
   catch { state = P.createState(); }
   let page = 'v1';
+  let starPeriod='day', starAnchor='';
   let editId = '';
   let selectedDay = P.dateKey();
   let context = null;
@@ -66,7 +67,7 @@
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
     const navPage = ({focus:'v1', coach:'v1', recover:'v1', growth:'v1review', review:'v1review',
-      v1memory:'v1review', v1ideas:'v1', settings:'v1settings', plan:'v1settings'})[page] ?? page;
+      v1ideas:'v1', settings:'v1settings', plan:'v1reminders'})[page] ?? page;
     document.querySelectorAll('#nav button').forEach(button => {
       const current = button.dataset.page === navPage;
       button.classList.toggle('active', current);
@@ -101,7 +102,8 @@
     const t = editing ?? { title: '', day: selectedDay, when: '14:00', minutes: 5, repeat: 'once', priority: 2, steps: [] };
     const dependencies = state.tasks.filter(row => !row.archived && row.id !== editing?.id);
     const confirmed = state.plans[selectedDay]?.items ?? [];
-    return (confirmed.length ? card('已确认的重点', planList(confirmed)) : '') +
+    return '<button type="button" class="secondary small page-back" data-act="page" data-target="v1reminders"><span aria-hidden="true">◂</span> 返回定时提醒</button>' +
+      (confirmed.length ? card('已确认的重点', planList(confirmed)) : '') +
       card('按日查看计划', `<label for="plan-date">日期</label><input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">` +
       (rows.length ? rows.map(({ task, item }) => `<article class="task ${item.status === 'completed' ? 'done' : ''}"><div class="task-body">
         <div class="task-name">${esc(task.title)}</div><div class="task-info">${esc(task.when)} · ${task.minutes} 分钟 · 优先级 ${task.priority} · ${P.STATUSES[item.status]}
@@ -214,33 +216,15 @@
       card('待验证的调整', proposals || '<p>目前记录不足，先观察已有计划。</p>') +
       card('成长奖励', `<p>⭐ ${state.stars} 颗星 · Lv.${Math.floor(state.stars / 100) + 1}</p><p class="subtle">实际启动、完成、部分完成和确认恢复可获得奖励。固定作息连续完成满三天有额外奖励。</p>`);
   }
-  function settingsView() {
-    const s = state.settings;
-    return card('我的教练', `<form id="settings-form">
-      <label>昵称 <input class="field" name="name" maxlength="24" value="${esc(state.name)}"></label>
-      <label>教练风格 <select class="field" name="style">${[['active', '主动监督'], ['gentle', '温柔陪伴'], ['brief', '简洁指令']].map(([key, label]) => option(key, label, s.style)).join('')}</select></label>
-      <label>我偏好的通用启动动作 <input class="field" name="preferredStep" maxlength="150" placeholder="例：先写下一件两分钟内能做的事" value="${esc(state.memory.preferredStep)}"></label>
-      <div class="cols"><label>跟进间隔（分钟） <input class="field" name="follow" type="number" min="1" max="60" value="${s.follow}" required></label>
-      <label>最多追加提醒 <input class="field" name="max" type="number" min="0" max="3" value="${s.max}" required></label>
-      <label>次日清单默认提示时间 <input class="field" name="nextDayTime" type="time" value="${esc(s.nextDayTime)}" required></label></div>
-      <div class="setting"><label><input type="checkbox" name="remind" ${s.remind ? 'checked' : ''}> 启用打开页面时的提醒</label></div>
-      <div class="controls"><button class="primary">保存设置</button>${action('notification', '启用浏览器通知')}</div>
-      </form><p>${s.pausedUntil > Date.now() ? '已暂停至 ' + esc(new Date(s.pausedUntil).toLocaleString('zh-CN')) : '监督未暂停'}</p>
-      <div class="controls">${action('pause', '暂停监督 1 小时')}${action('resume', '恢复监督')}</div>`) +
-      card('数据与能力', notice('数据保存在当前浏览器。关闭网页后的主动通知、设备级应用限制和内置语音识别尚未接入。可使用系统键盘听写输入。') +
-      '<p>真实模型需要本机服务配置。明确选择发送给 OpenAI 时，模型才接收当前消息与教练风格。</p>' +
-      '<p>浏览器通知依赖 HTTPS 或 localhost 和授权，实际送达还取决于系统设置。教练提供行动支持，不提供 ADHD 诊断或治疗。</p>' +
-      `<div class="controls">${action('export', '导出 JSON')}${action('reset', '清除本地数据', '', 'danger')}</div>`);
-  }
-  const views = { coach: coachView, plan: planView, growth: growthView, settings: settingsView,
+  const views = { coach: coachView, plan: planView, growth: growthView, settings: () => v1View.screen('settings'),
     recover: recoverView, focus: focusView, review: reviewView, v1: () => v1View.screen('chat'),
-    v1review: () => v1View.screen('review'), v1stars: () => window.PlanetDashboard.sky(state),
+    v1review: () => v1View.screen('review'), v1stars: () => window.PlanetDashboard.sky(state,starPeriod,starAnchor || P.dateKey()),
     v1reminders: () => v1View.screen('schedule'), v1settings: () => v1View.screen('settings'), v1library: () => v1View.screen('library'),
-    v1memory: () => v1View.screen('memory'), v1ideas: () => v1View.screen('ideas') };
+    v1ideas: () => v1View.screen('ideas') };
 
   function renderInbox() {
-    if (page !== 'v1' || window.PlanetV1.init(state).active) { inbox.innerHTML = ''; return; }
-    const pending = state.inbox.filter(row => !row.read && (!row.taskId || (() => {
+    if (page !== 'plan') { inbox.innerHTML = ''; return; }
+    const pending = state.inbox.filter(row => !row.read && !S.obsoleteBedtimeNotice(row.title) && (!row.taskId || (() => {
       const item = state.instances[row.taskDay + '/' + row.taskId];
       return !item?.acknowledged;
     })())).slice(-3).reverse();
@@ -248,7 +232,7 @@
       const task = state.tasks.find(t => t.id === row.taskId && !t.archived);
       const item = task && state.instances[row.taskDay + '/' + row.taskId];
       const data = item ? taskData(task, item) : '';
-      return card(row.title, (row.list ? '<ul>' + row.list.map(line => `<li>${esc(line)}</li>`).join('') + '</ul>' :
+      return card(row.title.replace(/^到点确认一下 · /,'计划任务提醒 · '), (row.list ? '<ul>' + row.list.map(line => `<li>${esc(line)}</li>`).join('') + '</ul>' :
         `<p>${esc(row.prompt)}</p>`) + `<div class="controls">${item ? action('start', '我开始了', data, 'primary') +
         action('help', '给我一个最小行动', data) + action('defer', '推迟 15 分钟', data) +
         action('check', '跳过', data + ' data-value="skipped"') : ''}
@@ -395,6 +379,25 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const handlers = {
+    'account-entry': () => { if(!settingsSync.openLogin?.())go('v1settings'); },
+    'reward-value': (_,task,button) => {
+      const plot=button.closest('.reward-plot');
+      const open=button.getAttribute('aria-expanded')!=='true';
+      for(const column of plot.querySelectorAll('[data-act="reward-value"][aria-expanded="true"]')){
+        column.setAttribute('aria-expanded','false');
+        byId(column.getAttribute('aria-controls')).hidden=true;
+      }
+      if(open){
+        button.setAttribute('aria-expanded','true');
+        byId(button.getAttribute('aria-controls')).hidden=false;
+      }
+    },
+    'star-period': ({value}) => {
+      if(!['day','week','month'].includes(value))return;
+      starPeriod=value;
+      render();
+      document.querySelector('[data-act="star-period"][aria-pressed="true"]')?.focus();
+    },
     page: ({ target }) => { if (Object.hasOwn(views, target)) go(target); },
     help: (data, task) => {
       context = task ? { id: task.id, day: data.day } : null;
@@ -468,15 +471,6 @@
       P.savePlan(state, data.day, rows, data.reflection, new Date(), C.draft(data.reflection).summary);
       save(); render(); toast('次日清单已确认');
     },
-    'settings-form': data => {
-      state.name = P.clean(data.name, 24) || '冒险家';
-      state.memory.preferredStep = P.clean(data.preferredStep, 150);
-      Object.assign(state.settings, {
-        style: data.style, follow: P.bounded(data.follow, 1, 60, 15), max: P.bounded(data.max, 0, 3, 2),
-        remind: Boolean(data.remind), nextDayTime: data.nextDayTime,
-      });
-      save(); render(); toast('设置已保存');
-    },
   };
   byId('nav').addEventListener('click', e => {
     const target = e.target.closest('[data-page]');
@@ -489,7 +483,7 @@
     const task = state.tasks.find(row => row.id === id && !row.archived);
     try {
       if (['start', 'defer', 'check'].includes(act)) markTask(task, day, act, value);
-      else await handlers[act]?.(button.dataset, task);
+      else await handlers[act]?.(button.dataset, task, button);
     } catch (error) { toast(error.message); }
   });
   document.addEventListener('submit', e => {
@@ -510,6 +504,14 @@
     } catch (error) { toast(error.message); }
   });
   document.addEventListener('change', e => {
+    if(e.target.matches('[data-star-stat-date]')){
+      const date=e.target.value;
+      if(!date || !e.target.validity.valid)return;
+      starAnchor=date;
+      render();
+      document.querySelector('[data-star-stat-date]')?.focus();
+      return;
+    }
     const el = e.target;
     if (el.id === 'plan-date' && el.value) {
       selectedDay = el.value; editId = ''; render(); return;

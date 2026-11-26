@@ -5,362 +5,236 @@
   "data": {
     "wake": {
       "title": "早上起床",
-      "intro": "早安呀！新的一天开始啦 ☀️\n你现在起床了吗？",
+      "intro": "早安呀！☀️ 新的一天开始啦。你现在起床了吗？",
       "options": [
-        [
-          "已经起床啦",
-          "早安！今天的第一步已经完成啦！现在去洗漱吧。"
-        ],
-        [
-          "醒了，但还躺在床上",
-          "先不想今天要做什么。掀开被子，坐起来。"
-        ],
-        [
-          "下床关了闹钟，又躺回去了",
-          "我们重新启动一下，先坐起来，这次直接走向洗手间。"
-        ],
-        [
-          "还很困，不想起床",
-          "先坐起来，打开灯或拉开窗帘，让自己慢慢清醒。"
-        ],
-        [
-          "已经洗漱完毕",
-          "晨间准备已经完成啦！接下来准备吃早餐吧。"
-        ],
-        [
-          "已经吃完早餐",
-          "晨间准备顺利完成，我们来看看今天的任务清单。"
-        ]
+        {
+          "id": "up",
+          "label": "已经真正离床",
+          "reply": "今天的第一步完成啦！晨间准备进行到哪里了？",
+          "next": "@wake"
+        },
+        {
+          "id": "in_bed",
+          "label": "醒了，还在床上",
+          "reply": "先不想今天要做什么，掀开被子，坐起来。现在做到哪一步了？",
+          "next": "rise"
+        },
+        {
+          "id": "back_in_bed",
+          "label": "关了闹钟，又躺回去了",
+          "reply": "我们重新开始这一步。先坐起来，再把双脚放到地面。现在怎么样了？",
+          "next": "@backInBed"
+        }
       ]
     },
     "am": {
       "title": "上午开始工作或学习",
-      "intro": "上午的成长时间到啦！我们来看看今天的计划。\n你现在是什么状态？",
+      "intro": "上午的成长时间到啦！☀️ 来看看今天的重点，你现在是什么状态？",
       "options": [
-        [
-          "已经开始工作或学习",
-          "启动成功！你现在正在做哪一项任务？"
-        ],
-        [
-          "准备好了，还没开始",
-          "打开第一项任务需要的材料，先做5分钟。"
-        ],
-        [
-          "正在做其他事情",
-          "你现在正在做什么？预计什么时候能够结束？"
-        ],
-        [
-          "不太想开始，感觉有困难",
-          "我们先看看是什么阻碍了你开始。"
-        ],
-        [
-          "今天上午有其他安排",
-          "告诉我你的安排，我们重新确定计划。"
-        ]
+        {
+          "id": "started",
+          "label": "已经开始了",
+          "reply": "启动成功！按现在的节奏继续，小星先不打扰你啦。",
+          "next": "@start"
+        },
+        {
+          "id": "ready",
+          "label": "准备开始，还没行动",
+          "reply": "打开当前任务需要的第一份材料，先做一个小步骤。现在开始了吗？",
+          "next": "begin"
+        },
+        {
+          "id": "other_activity",
+          "label": "还在做其他事情",
+          "reply": "你现在的事情属于哪一种？",
+          "next": "otherActivity"
+        },
+        {
+          "id": "difficulty",
+          "label": "想开始，但有困难",
+          "reply": "现在最主要的困难是什么？",
+          "next": "barrier"
+        }
       ]
     },
     "pm": {
       "title": "下午开始工作或学习",
-      "intro": "下午好呀！现在到了下午的计划时间，你准备好开始了吗？",
+      "intro": "下午好呀！我们来看看下午最需要推进的事情。你现在是什么状态？",
       "options": [
-        [
-          "已经开始了",
-          "下午的行动星已经点亮啦！你正在推进哪项任务？"
-        ],
-        [
-          "准备开始，还没行动",
-          "先回到桌前，打开下午要处理的第一份材料。"
-        ],
-        [
-          "还在吃饭或休息",
-          "你先安心吃饭或休息，预计什么时候结束？"
-        ],
-        [
-          "正在做计划之外的事情",
-          "这件事情是必须现在处理的，还是临时被吸引过去的？"
-        ],
-        [
-          "状态不好，不太想开始",
-          "我们看看现在最大的障碍是什么，再调整任务。"
-        ]
+        {
+          "id": "started",
+          "label": "已经开始了",
+          "reply": "下午的行动已经启动！继续手头的任务吧。",
+          "next": "@start"
+        },
+        {
+          "id": "ready",
+          "label": "准备开始，还没行动",
+          "reply": "回到工作位置，打开下午的第一份任务材料。现在开始了吗？",
+          "next": "begin"
+        },
+        {
+          "id": "other_activity",
+          "label": "还在做其他事情",
+          "reply": "你还在进行哪类活动？",
+          "next": "otherActivity"
+        },
+        {
+          "id": "difficulty",
+          "label": "想开始，但有困难",
+          "reply": "现在最主要的困难是什么？",
+          "next": "barrier"
+        }
       ]
     },
     "check": {
       "title": "下午学习中途的状态监督",
-      "intro": "小星来看看你啦！现在的你正在做什么呢？",
+      "intro": "小星来看看你啦！✨ 现在的你正在做什么？",
       "options": [
-        [
-          "正在专注工作或学习",
-          "很好，保持现在的节奏，小星先不打扰你啦。"
-        ],
-        [
-          "在学习，但注意力有点涣散",
-          "现在是什么事情牵扯住了你的注意力？"
-        ],
-        [
-          "已经偏航，在做其他事情",
-          "告诉我你现在正在做什么，我们一起找回原来的方向。"
-        ],
-        [
-          "正在休息",
-          "好好休息也是计划的一部分，你准备什么时候继续？"
-        ],
-        [
-          "到现在还没开始",
-          "是什么让你一直没能开始？我们从现在重新安排。"
-        ]
+        {
+          "id": "focused",
+          "label": "正在专注",
+          "reply": "很好，保持现在的节奏，小星先不打扰你啦。",
+          "next": "@check"
+        },
+        {
+          "id": "distracted",
+          "label": "有点分心，或已经偏航",
+          "reply": "现在是哪一种情况？",
+          "next": "attention"
+        },
+        {
+          "id": "planned_break",
+          "label": "正在休息或另有安排",
+          "reply": "先把当前安排照顾好。你什么时候适合继续？",
+          "next": "checkBreak"
+        },
+        {
+          "id": "not_started",
+          "label": "到现在还没开始",
+          "reply": "不用追回之前的时间。我们先看看现在卡在哪里。",
+          "next": "barrier"
+        }
       ]
     },
     "dinner": {
       "title": "晚上吃饭",
-      "intro": "到晚饭时间啦！今天的工作先告一段落，记得照顾好自己。\n你现在吃晚饭了吗？",
+      "intro": "到晚饭时间啦！记得照顾好自己。你现在吃晚饭了吗？",
       "options": [
-        [
-          "已经吃完了",
-          "你准备直接回家，还是出去散散步？"
-        ],
-        [
-          "正在吃饭",
-          "好好享受晚餐吧，预计什么时候吃完？"
-        ],
-        [
-          "准备去吃饭",
-          "先保存手头的工作，准备去吃饭吧。"
-        ],
-        [
-          "还在工作，暂时没结束",
-          "我们确定一个明确的收尾时间。"
-        ],
-        [
-          "现在还不想吃",
-          "你准备什么时候吃？我们重新安排提醒。"
-        ]
+        {
+          "id": "finished",
+          "label": "已经吃完了",
+          "reply": "晚餐结束啦！现在方便准备洗澡了吗？",
+          "next": "@dinner"
+        },
+        {
+          "id": "eating",
+          "label": "正在吃饭",
+          "reply": "安心吃饭，吃完再来告诉我就好。",
+          "next": "dinnerEating"
+        },
+        {
+          "id": "ready",
+          "label": "还没吃，准备去吃",
+          "reply": "把手头事情停在一个方便继续的位置，准备吃饭吧。",
+          "next": "dinnerReady"
+        },
+        {
+          "id": "busy",
+          "label": "还没吃，暂时不能去",
+          "reply": "是还在忙，还是现在不适合吃饭？",
+          "next": "dinnerBusy"
+        }
       ]
     },
     "bath": {
       "title": "洗澡",
-      "intro": "到洗澡时间啦！我们争取高效完成洗浴，给今晚留出更多属于自己的时间。\n记得洗澡前先开启计时器哦！",
+      "intro": "到洗澡时间啦！🫧 如果还没开始，可以先选计时模式再去洗澡。现在进行到哪一步了？",
       "options": [
-        [
-          "现在就去洗澡",
-          "准备好换洗衣物，开启计时器，然后进入浴室吧。"
-        ],
-        [
-          "已经洗完了",
-          "清清爽爽地回来啦！衣物和其他整理也完成了吗？"
-        ],
-        [
-          "正在洗澡",
-          "继续完成洗浴就好，不需要现在回复。"
-        ],
-        [
-          "还在做其他事情",
-          "你现在正在做什么？能否先暂停，去完成洗澡？"
-        ],
-        [
-          "还没回家",
-          "预计什么时候回来？到时候我再提醒你。"
-        ]
+        {
+          "id": "finished",
+          "label": "洗澡及计划内整理已全部完成",
+          "reply": "清清爽爽地回来啦！今天的洗浴任务完成了。",
+          "next": "@bath"
+        },
+        {
+          "id": "in_progress",
+          "label": "正在洗澡或整理",
+          "reply": "先完成手头的事情，不需要现在回复。结束后再确认。",
+          "next": "bathResult"
+        },
+        {
+          "id": "ready",
+          "label": "准备去洗澡",
+          "reply": "准备好换洗衣物。如果想计时，选好模式再开始。",
+          "next": "bathTimer"
+        },
+        {
+          "id": "busy",
+          "label": "暂时还不能去",
+          "reply": "现在是什么让你还不能开始？",
+          "next": "bathBusy"
+        }
       ]
     },
     "night": {
       "title": "晚上开始工作或学习",
-      "intro": "晚上的专注时间到啦！我们来推进今天剩下的重要任务。",
+      "intro": "晚上的专注时间到啦！我们根据今天的进度，推进一件重要的事。现在是什么状态？",
       "options": [
-        [
-          "已经开始工作或学习",
-          "晚间启动成功！按照这个方向继续推进吧。"
-        ],
-        [
-          "准备好了，还没开始",
-          "打开任务材料，先做5分钟。"
-        ],
-        [
-          "还在洗澡或整理",
-          "完成手头的事情后直接回到桌前。"
-        ],
-        [
-          "正在做其他事情",
-          "这件事情是今晚原本计划的一部分吗？"
-        ],
-        [
-          "今天太累了，想休息",
-          "可以先休息、降低任务量，或者调整今晚的计划。"
-        ]
+        {
+          "id": "started",
+          "label": "已经开始了",
+          "reply": "晚间启动成功！保持现在的节奏吧。",
+          "next": "@start"
+        },
+        {
+          "id": "ready",
+          "label": "准备开始，还没行动",
+          "reply": "打开今晚重点任务的材料，先做一个小步骤。开始了吗？",
+          "next": "begin"
+        },
+        {
+          "id": "other_activity",
+          "label": "还在做其他事情",
+          "reply": "你还在进行哪类活动？",
+          "next": "otherActivity"
+        },
+        {
+          "id": "difficulty",
+          "label": "想开始，但有困难",
+          "reply": "现在最主要的困难是什么？",
+          "next": "barrier"
+        }
       ]
     },
     "sleep": {
       "title": "睡觉与每日复盘",
-      "intro": "夜深啦，今天的成长时间差不多结束了。\n我们准备给今天画上一个温柔的句号吧。你现在是什么状态？",
+      "intro": "夜深啦，🌙 今天的事情可以慢慢收尾了。你现在准备到哪一步了？",
       "options": [
-        [
-          "已经结束工作，准备睡觉",
-          "简单回顾今天，确定明天的任务，然后准备休息。"
-        ],
-        [
-          "还在工作或学习",
-          "保存当前进度，记录下一步，给自己5分钟收尾。"
-        ],
-        [
-          "正在刷手机或娱乐",
-          "给现在的娱乐活动画一个句号，退出页面，准备洗漱。"
-        ],
-        [
-          "已经躺在床上了",
-          "已经进入休息状态啦，不需要重新起来处理其他事情。"
-        ],
-        [
-          "还不想睡",
-          "是现在还不困、舍不得结束今天，还是脑子里有很多事情？"
-        ]
-      ]
-    },
-    "rise": {
-      "options": [
-        [
-          "已经坐起来了",
-          "很好，现在双脚落地，站起来。"
-        ],
-        [
-          "双脚已经落地",
-          "接下来站起来，直接走向洗手间。"
-        ],
-        [
-          "已经下床了",
-          "已经离床了。接下来去洗漱。"
-        ],
-        [
-          "还是起不来",
-          "先用手撑高上半身一点，哪一步最难？"
-        ]
-      ]
-    },
-    "barrier": {
-      "options": [
-        [
-          "不知道从哪里开始",
-          "先打开当前任务需要的一份材料，只看标题。"
-        ],
-        [
-          "任务太难了",
-          "暂时不要求解决整个问题，先处理其中一个小问题。"
-        ],
-        [
-          "没有动力",
-          "先尝试行动5分钟，不必等待动力出现。"
-        ],
-        [
-          "正在刷手机",
-          "退出当前页面，把手机放到一旁，打开任务材料。"
-        ],
-        [
-          "有负面情绪",
-          "先缓一口气，再选一个一分钟内能完成的动作。"
-        ],
-        [
-          "身体疲惫或不舒服",
-          "降低任务强度，必要时安排休息。"
-        ]
-      ]
-    },
-    "detour": {
-      "options": [
-        [
-          "刷短视频、手机娱乐",
-          "关闭当前页面，将手机放到一旁。"
-        ],
-        [
-          "聊天或等待消息",
-          "暂时关闭聊天窗口，先回到自己的任务5分钟。"
-        ],
-        [
-          "突然想到新点子",
-          "保存到灵感暂存区，不立即展开研究。"
-        ],
-        [
-          "查资料时越查越远",
-          "保存当前链接，回到最初需要解决的问题。"
-        ],
-        [
-          "反复思考或纠结",
-          "判断是否有新信息，将暂时无法解决的问题记录下来。"
-        ],
-        [
-          "受到负面情绪影响",
-          "先缓一口气，然后只打开原任务的页面。"
-        ],
-        [
-          "必须处理的临时事务",
-          "完成必要事务，并约定回归时间。"
-        ]
-      ]
-    },
-    "afterDinner": {
-      "options": [
-        [
-          "已经回家了",
-          "回来啦！接下来直接进入洗澡流程吧。"
-        ],
-        [
-          "正在回家的路上",
-          "预计什么时候到家？到时候我再来提醒你。"
-        ],
-        [
-          "准备出去散步",
-          "去享受一下晚上的空气吧！预计散步多久？"
-        ],
-        [
-          "还有其他安排",
-          "你希望我什么时候再确认洗澡安排？"
-        ]
-      ]
-    },
-    "bathResult": {
-      "options": [
-        [
-          "已经全部完成",
-          "清爽收工，洗澡和整理都记下了。"
-        ],
-        [
-          "洗完了，还在整理",
-          "接下来完成剩余的衣物整理。"
-        ],
-        [
-          "还没有洗完",
-          "继续完成必要步骤，不需要为了计时而匆忙。"
-        ],
-        [
-          "中途被其他事情打断",
-          "确认一下哪一步还没做，先从那一步接着做。"
-        ]
-      ]
-    },
-    "sleepBarrier": {
-      "options": [
-        [
-          "还不困",
-          "降低灯光亮度，停止刺激性活动，进行安静的睡前准备。"
-        ],
-        [
-          "舍不得结束今天",
-          "将还想做的事情记录下来，留给明天。"
-        ],
-        [
-          "脑子里有很多想法",
-          "通过语音或文字将想法外化，由小星代为整理保存。"
-        ],
-        [
-          "有事情让我很难受",
-          "这件事听起来让你不好受。先让自己靠稳一点，明天有精力再说。"
-        ],
-        [
-          "觉得今天什么都没完成",
-          "试着记下一件今天实际发生的小事。今晚可以到这里。"
-        ],
-        [
-          "忍不住继续玩手机",
-          "退出当前页面，把手机放到固定充电位置。"
-        ]
+        {
+          "id": "in_bed",
+          "label": "已经上床了",
+          "reply": "不需要再起来做其他事情。现在准备放下手机休息了吗？",
+          "next": "sleepInBed"
+        },
+        {
+          "id": "ready",
+          "label": "准备睡前收尾",
+          "reply": "辛苦啦！如果还有想法，可以在上床前简单说给我听。",
+          "next": "sleepReady"
+        },
+        {
+          "id": "busy",
+          "label": "还在工作或娱乐",
+          "reply": "现在主要在做什么？",
+          "next": "sleepBusy"
+        },
+        {
+          "id": "difficulty",
+          "label": "还不想睡或睡不着",
+          "reply": "是什么让现在的收尾有点困难？",
+          "next": "sleepBarrier"
+        }
       ]
     }
   },
@@ -624,5 +498,287 @@
         "你成功改变了刚才的行动方向，这是一次值得庆祝的进步！"
       ]
     ]
-  }
+  },
+  "phases": {
+    "rise": {
+      "question": "离床这一步进展怎么样？",
+      "options": [
+        {"id":"up","label":"已经离床","reply":"今天第一步完成啦！晨间准备进行到哪里了？","next":"@wake"},
+        {"id":"sitting","label":"已经坐起来","reply":"双脚落地，站起来。","next":"rise"},
+        {"id":"stuck","label":"还是起不来","reply":"现在坐起来和双脚落地，哪一步最难？","next":"wakeCare","guide":true}
+      ]
+    },
+    "wakeCare": {
+      "question": "身体状态还好吗？",
+      "options": [
+        {"id":"try","label":"可以继续尝试","reply":"先把一只脚伸到床边。","next":"rise"},
+        {"id":"pause","label":"身体不舒服，需要暂停","reply":"先照顾身体，监督可以暂停。","next":"@pause"}
+      ]
+    },
+    "morningProgress": {
+      "question": "晨间准备进行到哪里了？",
+      "options": [
+        {"id":"unwashed","label":"还没洗漱","reply":"先去洗手间，完成洗漱吧。","next":"wash"},
+        {"id":"washed","label":"已洗漱，还在准备","reply":"按照你的晨间安排，完成剩下的准备。","next":"breakfast"},
+        {"id":"ready","label":"晨间准备都好了","reply":"来看看今天的第一项任务。","next":"@handoff"}
+      ]
+    },
+    "wash": {
+      "question": "洗漱进行得怎么样？",
+      "options": [
+        {"id":"finished","label":"已洗漱","reply":"接下来完成剩余晨间准备。","next":"breakfast"},
+        {"id":"doing","label":"正在洗漱","reply":"洗完再确认。","next":"wash"},
+        {"id":"pending","label":"还没开始","reply":"先走到洗手间。","next":"wash","guide":true}
+      ]
+    },
+    "breakfast": {
+      "question": "晨间准备好了吗？",
+      "options": [
+        {"id":"ready","label":"已准备好","reply":"来看看今日重点。","next":"@handoff"},
+        {"id":"doing","label":"还在准备","reply":"先完成手头的事情。","next":"breakfast"},
+        {"id":"pending","label":"还没开始准备","reply":"先准备你接下来要用的东西。","next":"breakfast","guide":true}
+      ]
+    },
+    "barrier": {
+      "question": "现在最主要的困难是什么？",
+      "options": [
+        {"id":"unclear","label":"不知道怎么做或任务太难","reply":"先把「{task}」缩小成一个现在能做的动作。","next":"@barrier:begin","guide":true},
+        {"id":"attention","label":"不想动或注意力不在这里","reply":"先把当前任务的材料摆到眼前。","next":"@barrier:begin","guide":true},
+        {"id":"energy","label":"情绪或身体状态不好","reply":"先照顾此刻的身体和情绪。需要休息的话，可以暂停监督。","next":"@barrier:begin","guide":true}
+      ]
+    },
+    "otherActivity": {
+      "question": "你还在进行哪类活动？",
+      "options": [
+        {"id":"necessary","label":"计划内或必要的事情","reply":"安心完成现在的事，再约一个回归时间。","next":"@wait:begin"},
+        {"id":"detour","label":"临时被其他事情吸引","reply":"先给手头这件事找个停止点。","next":"@detour:back","guide":true},
+        {"id":"switch","label":"现在可以切换","reply":"{firstStep}","next":"begin"}
+      ]
+    },
+    "begin": {
+      "question": "这个小步骤开始了吗？",
+      "options": [
+        {"id":"started","label":"已经开始","reply":"启动成功，继续就好。","next":"@start"},
+        {"id":"stuck","label":"还是没开始","reply":"我们看看卡在哪里。","next":"barrier","guide":true}
+      ]
+    },
+    "sustain": {
+      "question": "当前这段工作怎么样了？",
+      "options": [
+        {"id":"focused","label":"还在专注","reply":"继续保持。","next":"sustain"},
+        {"id":"target","label":"已持续专注达到目标","reply":"","next":"@focusTarget"},
+        {"id":"interrupted","label":"已经中断","reply":"我们找回原任务。","next":"@detour:detour"},
+        {"id":"wrapped","label":"已经收尾","reply":"把进度保存好。","next":"@wrap"}
+      ]
+    },
+    "wrap": {
+      "question": "现在可以收尾了吗？",
+      "options": [
+        {"id":"wrapped","label":"已经收尾","reply":"记录下次的第一步。","next":"@wrap"},
+        {"id":"later","label":"还需要一点时间","reply":"先定一个停止点。","next":"@wait:wrap"}
+      ]
+    },
+    "lunch": {
+      "question": "午饭或午休进行得怎么样？",
+      "options": [
+        {"id":"finished","label":"已经结束，可以开始下午任务","reply":"接下来按你的下午计划走。","next":"@handoff"},
+        {"id":"doing","label":"还在吃饭或休息","reply":"先安心吃饭或休息。","next":"lunch"},
+        {"id":"plans","label":"还没开始吃饭或另有安排","reply":"先看看现在需要安排哪一件事。","next":"@wait:lunch","guide":true}
+      ]
+    },
+    "attention": {
+      "question": "现在是哪一种情况？",
+      "options": [
+        {"id":"still","label":"还在做原任务，但注意力不集中","reply":"把注意力放回手头正在做的这一小步。","next":"@barrier:attention","guide":true},
+        {"id":"switched","label":"已经转去做其他事情","reply":"先找到现在这件事的停止点。","next":"@detour:detour","guide":true},
+        {"id":"unclear","label":"说不清，被很多想法打断","reply":"试着说说刚才最吸引你注意力的一件事。","next":"@barrier:attention","guide":true}
+      ]
+    },
+    "checkBreak": {
+      "question": "你什么时候适合继续？",
+      "options": [
+        {"id":"now","label":"现在可以继续","reply":"{firstStep}","next":"begin"},
+        {"id":"later","label":"稍后继续","reply":"选一个合适的时间再确认。","next":"@wait:checkBreak"},
+        {"id":"adjust","label":"今天需要调整计划","reply":"可以先说说你想怎么调整。计划由你确认。","next":"@wait:checkBreak"}
+      ]
+    },
+    "detour": {
+      "question": "什么把你带离原来的任务？",
+      "options": [
+        {"id":"phone","label":"手机娱乐或聊天","reply":"先找到停止点，把注意力移回原任务。","next":"@strategy","guide":true},
+        {"id":"idea","label":"新想法或查资料越查越远","reply":"记下链接或想法，回到最初目标。","next":"@strategy","guide":true},
+        {"id":"emotion","label":"情绪、走神或反复纠结","reply":"先标记当下的感受或想法。","next":"@strategy","guide":true},
+        {"id":"task","label":"任务困难或不知道下一步","reply":"先找出原任务里最小的一个动作。","next":"@strategy","guide":true}
+      ]
+    },
+    "recovery": {
+      "question": "什么把你带离原来的任务？",
+      "options": [
+        {"id":"phone","label":"手机娱乐或聊天","reply":"先找到停止点，把注意力移回原任务。","next":"@strategy","guide":true},
+        {"id":"idea","label":"新想法或查资料越查越远","reply":"记下链接或想法，回到最初目标。","next":"@strategy","guide":true},
+        {"id":"emotion","label":"情绪、走神或反复纠结","reply":"先标记当下的感受或想法。","next":"@strategy","guide":true},
+        {"id":"task","label":"任务困难或不知道下一步","reply":"先找出原任务里最小的一个动作。","next":"@strategy","guide":true}
+      ]
+    },
+    "back": {
+      "question": "现在回到原任务了吗？",
+      "options": [
+        {"id":"returned","label":"已经回到原任务","reply":"欢迎回来！","next":"@returned"},
+        {"id":"switching","label":"正在切换","reply":"先完成当前一个转换动作。","next":"back"},
+        {"id":"stuck","label":"还是回不去","reply":"我们换一种办法。现在最卡的是哪一步？","next":"detour","guide":true}
+      ]
+    },
+    "backHold": {
+      "question": "这次回归之后的行动怎么样？",
+      "options": [
+        {"id":"target","label":"已持续到目标时长","reply":"","next":"@returnTarget"},
+        {"id":"brief","label":"只回归了一会儿","reply":"这一小段回归也值得记录。","next":"@returnBrief"}
+      ]
+    },
+    "afterDinner": {
+      "question": "现在方便准备洗澡了吗？",
+      "options": [
+        {"id":"home","label":"已到家，可以准备","reply":"可以按你的安排准备洗澡。","next":"@handoff"},
+        {"id":"outside","label":"还在外面","reply":"到家后再确认。","next":"@wait:homeCheck"},
+        {"id":"plans","label":"还有饭后安排","reply":"先完成你的饭后安排。可以约个合适的时间。","next":"@wait:homeCheck"}
+      ]
+    },
+    "homeCheck": {
+      "question": "现在方便准备洗澡了吗？",
+      "options": [
+        {"id":"home","label":"已到家，可以准备","reply":"可以按你的安排准备洗澡。","next":"@handoff"},
+        {"id":"outside","label":"还在外面","reply":"到家后再确认。","next":"@wait:homeCheck"},
+        {"id":"plans","label":"还有饭后安排","reply":"先完成你的饭后安排。可以约个合适的时间。","next":"@wait:homeCheck"}
+      ]
+    },
+    "dinnerStart": {
+      "question": "晚饭这一步进行到哪里了？",
+      "options": [
+        {"id":"finished","label":"已经吃完","reply":"晚饭已经记录。现在方便准备洗澡了吗？","next":"@dinner"},
+        {"id":"eating","label":"正在吃","reply":"安心吃饭，吃完再确认。","next":"dinnerEating"},
+        {"id":"pending","label":"还没开始","reply":"先把手头的事停在一个方便继续的位置。","next":"dinnerWrap","guide":true}
+      ]
+    },
+    "dinnerEating": {
+      "question": "吃完再确认就好。",
+      "options": [
+        {"id":"finished","label":"已经吃完","reply":"晚饭已经记录。现在方便准备洗澡了吗？","next":"@dinner"},
+        {"id":"eating","label":"还在吃","reply":"先安心吃饭。","next":"dinnerEating"}
+      ]
+    },
+    "dinnerReady": {
+      "question": "晚饭这一步进行到哪里了？",
+      "options": [
+        {"id":"eating","label":"已经开始吃饭","reply":"安心吃饭，吃完再确认。","next":"dinnerEating"},
+        {"id":"finished","label":"已经吃完","reply":"晚饭已经记录。现在方便准备洗澡了吗？","next":"@dinner"},
+        {"id":"stuck","label":"还没能出发或开始","reply":"可以先记下手头事情的下一步，再准备晚饭。","next":"dinnerStart","guide":true}
+      ]
+    },
+    "dinnerBusy": {
+      "question": "现在是什么情况？",
+      "options": [
+        {"id":"working","label":"还在工作，需要收尾","reply":"先保存进度，约个收尾时间。","next":"@wait:dinnerWrap"},
+        {"id":"plans","label":"有其他安排或暂时不适合","reply":"按你的安排，约个合适时间。","next":"@wait:dinnerStart"},
+        {"id":"now","label":"现在可以去吃","reply":"去准备晚饭吧。","next":"dinnerStart"}
+      ]
+    },
+    "dinnerWrap": {
+      "question": "手头事情收尾了吗？",
+      "options": [
+        {"id":"done","label":"已经收尾","reply":"可以准备吃饭了。","next":"dinnerStart"},
+        {"id":"stuck","label":"还是没能收尾","reply":"先把未完成的下一步记一行。","next":"dinnerWrap","guide":true}
+      ]
+    },
+    "bathBusy": {
+      "question": "现在是什么让你还不能开始？",
+      "options": [
+        {"id":"outside","label":"还没到家","reply":"可以约到家后再确认。","next":"@wait:bathSwitch"},
+        {"id":"busy","label":"正在处理其他事情","reply":"先找一个可以暂停的节点。","next":"bathSwitch","guide":true},
+        {"id":"ready","label":"现在可以去了","reply":"带好换洗衣物，需要的话先开启计时。","next":"bathTimer"}
+      ]
+    },
+    "bathSwitch": {
+      "question": "现在可以去洗澡了吗？",
+      "options": [
+        {"id":"ready","label":"现在可以去","reply":"带好换洗衣物，需要的话先开启计时。","next":"bathTimer"},
+        {"id":"busy","label":"还是不能去","reply":"先给手头的事找个可以暂停的节点。","next":"bathSwitch","guide":true}
+      ]
+    },
+    "bathTimer": {
+      "question": "如果需要计时，选好模式再开始。",
+      "options": [
+        {"id":"no_timer","label":"不计时，直接开始","reply":"按自己的节奏完成，结束后再确认。","next":"bathResult"},
+        {"id":"finished","label":"已经全部完成","reply":"清清爽爽地回来啦！今天的洗浴任务完成了。","next":"@bath"}
+      ]
+    },
+    "bathResult": {
+      "question": "洗澡及计划内整理完成了吗？",
+      "options": [
+        {"id":"finished","label":"已经全部完成","reply":"清清爽爽地回来啦！今天的洗浴任务完成了。","next":"@bath"},
+        {"id":"doing","label":"还在进行","reply":"先完成手头这一步。","next":"bathResult"},
+        {"id":"stuck","label":"中途卡住了","reply":"先只确认还有哪一步没完成。","next":"@barrier:bathResult","guide":true}
+      ]
+    },
+    "sleepBarrier": {
+      "question": "现在主要是什么让你难以收尾？",
+      "options": [
+        {"id":"awake","label":"还不困","reply":"可以先把灯光调暗，做一点安静的睡前准备。","next":"bedtime","guide":true},
+        {"id":"thoughts","label":"想法多或情绪影响","reply":"可以只记下最挂念的一句话。","next":"bedtime","guide":true},
+        {"id":"stop","label":"舍不得结束今天或停不下娱乐","reply":"先给手头这件事找一个可以停下来的位置。","next":"bedtime","guide":true}
+      ]
+    },
+    "sleepInBed": {
+      "question": "现在准备放下手机休息了吗？",
+      "options": [
+        {"id":"sleep","label":"准备放下手机睡觉","reply":"晚安。你可以安心休息了。","next":"@bed"},
+        {"id":"stuck","label":"脑子里还有事情或还停不下来","reply":"不用起来，先把最挂念的一句话暂存。","next":"sleepInBed","guide":true},
+        {"id":"skip","label":"今晚直接休息，跳过复盘","reply":"今晚可以直接休息。","next":"@bedSkip"}
+      ]
+    },
+    "sleepReady": {
+      "question": "接下来想怎么安排？",
+      "options": [
+        {"id":"review","label":"开始简短复盘和明日计划","reply":"简单说说今天的进展或明天的重点。","next":"@review"},
+        {"id":"ready","label":"已经整理好，准备上床","reply":"可以按自己的节奏去休息。","next":"bedtime"},
+        {"id":"skip","label":"今晚不复盘","reply":"今晚略过复盘。准备好休息时再确认。","next":"@skipReview"}
+      ]
+    },
+    "sleepBusy": {
+      "question": "现在主要在做什么？",
+      "options": [
+        {"id":"work","label":"还在工作","reply":"保存当前进度，记下下次的第一步。","next":"bedtime"},
+        {"id":"fun","label":"还在娱乐","reply":"把进度停在可继续的位置，退出页面。","next":"bedtime"},
+        {"id":"necessary","label":"其他必要事务","reply":"先完成必要事务，方便时再开始收尾。","next":"bedtime"}
+      ]
+    },
+    "bedtime": {
+      "question": "睡前准备到哪一步了？",
+      "options": [
+        {"id":"bed","label":"已上床，准备休息","reply":"晚安，把剩下的事交给明天。","next":"@bed"},
+        {"id":"doing","label":"还在收尾","reply":"接下来只做一个必要步骤。","next":"bedtime"},
+        {"id":"stuck","label":"收尾有困难","reply":"先把最挂念的一句话记下来。","next":"bedtime","guide":true}
+      ]
+    },
+    "wait": {
+      "question": "现在进展怎么样？",
+      "options": [
+        {"id":"done","label":"已结束，可以继续","reply":"我们继续刚才那一步。","next":"@resume"},
+        {"id":"doing","label":"仍在进行","reply":"需要的话，可以重新约定时间。","next":"@stayWait"},
+        {"id":"adjust","label":"需要调整计划","reply":"可以直接说你想怎么调整，由你确认。","next":"@stayWait"}
+      ]
+    },
+    "customHelp": {
+      "question": "这个小步骤进展怎么样？",
+      "options": [
+        {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@complete"},
+        {"id":"doing","label":"正在进行","reply":"先继续手头这一步。","next":"initial"},
+        {"id":"stuck","label":"还是没开始","reply":"想想「{task}」有哪一步可以再小一点。","next":"customHelp","guide":true}
+      ]
+    }
+  },
+  "customOptions": [
+    {"id":"finished","label":"已经完成","reply":"收到，已记录这次完成。","next":"@complete"},
+    {"id":"doing","label":"正在进行","reply":"先继续手头这一步，方便时再回来确认。","next":"initial"},
+    {"id":"help","label":"还没开始，需要帮助","reply":"从「{task}」开始，先准备这件事需要的一样东西。","next":"customHelp"}
+  ]
 });

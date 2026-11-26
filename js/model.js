@@ -29,7 +29,7 @@
   const clean = (value, limit) => String(value ?? '').trim().slice(0, limit);
   const defaultSettings = {
     style: 'active', follow: 15, max: 2,
-    remind: true, pausedUntil: 0, nextDayTime: '09:00',
+    remind: true, pausedUntil: 0, nextDayTime: '09:00', nextDayRemind: true,
   };
   function createState(now = new Date()) {
     const day = dateKey(now);
@@ -199,6 +199,7 @@
     if (label === 'partial') reward = award(state, item, 'partial', 5);
     event(state, { active: 'started', interrupted: 'interrupted', deferred: 'deferred' }[label] ?? 'checkin', now, {
       taskId: task.id, taskDay: day, title: task.title, from: previous, status: label,
+      pointsEarned: reward,
       ...(firstStart ? { delayMinutes: Math.max(0, (now.getTime() - item.plannedAt) / 60000) } : {}),
       ...(obstacle ? { obstacle, evidence: 'self_report' } : {}),
       ...(strategy ? { strategy } : {}),
@@ -213,18 +214,40 @@
     }));
     if (normalized.some(row => !row.title || !row.firstStep || !timeOk(row.when))) throw new Error('每项都需要名称、计划时间和具体第一步');
     const old = state.plans[day];
-    for (const task of state.tasks.filter(task => old?.items.some(row => row.id === task.id))) task.archived = true;
+    const retained = new Set();
     const plan = {
       reflection: clean(reflection, 1500), progress: progress.map(line => clean(line, 150)).filter(Boolean).slice(0, 10),
       confirmedAt: now.toISOString(), deliveredAt: null,
       items: normalized.map(row => {
+        const existing=old?.items.find(item=>!retained.has(item.id) &&
+          item.title===row.title && item.when===row.when && item.firstStep===row.firstStep &&
+          state.tasks.some(task=>task.id===item.id && !task.archived));
+        if(existing){
+          retained.add(existing.id);
+          return {...row,id:existing.id};
+        }
         const task = upsertTask(state, { ...row, day, repeat: 'once', priority: 1 }, now);
         return { ...row, id: task.id };
       }),
     };
+    archivePlanTasks(state,old,retained);
     state.plans[day] = plan;
     event(state, 'plan_confirmed', now, { planDay: day, count: plan.items.length });
     return plan;
+  }
+  function archivePlanTasks(state,plan,retained=new Set()) {
+    for (const task of state.tasks) {
+      if(plan?.items.some(item=>item.id===task.id) && !retained.has(task.id))task.archived=true;
+    }
+  }
+  function clearPlan(state,day,now=new Date()) {
+    if(day!==shiftDate(dateKey(now),1))throw new Error('请确认次日的计划日期');
+    const plan=state.plans[day];
+    if(!plan)return false;
+    archivePlanTasks(state,plan);
+    delete state.plans[day];
+    event(state,'plan_cleared',now,{planDay:day});
+    return true;
   }
   function beginRecovery(state, input, now = new Date()) {
     if (state.recoveries.some(entry => entry.result === 'open')) throw new Error('请先结束已有的恢复记录');
@@ -263,6 +286,6 @@
   return {
     KEY, STATUSES, outcomes, uid, dateKey, shiftDate, dueAt, timeOk, bounded, clean,
     createState, migrate, read, write, event, upsertTask, occurs, schedule, openInstance, isLegacyWakeTask,
-    blocked, nextTask, transition, savePlan, beginRecovery, endRecovery, award,
+    blocked, nextTask, transition, savePlan, clearPlan, beginRecovery, endRecovery, award,
   };
 });
