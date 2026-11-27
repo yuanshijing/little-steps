@@ -159,7 +159,7 @@
         <form data-v1-form="chat"><label>${writingReview?'填写本次复盘反馈':'和小星聊聊'}<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
         <div class="controls"><button type="submit" class="primary" ${!writingReview&&(!modelEnabled||modelSending)?'disabled':''}>发送</button>${voiceButton('v1-input')}</div></form>
         <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选上方的状态。'}</p>
-        ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
+        ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : ''}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('小工具', `<div class="section-links">${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
           <button type="button" class="secondary small" data-act="page" data-target="focus">专注计时</button>
@@ -325,7 +325,7 @@
         <div class="review-note"><h3>偏航与恢复 · ${todayCases.length} 次</h3>
         ${todayCases.length ? '<ul>' + todayCases.map(c=>'<li>' + esc(c.obstacle + ' · 尝试 ' + c.strategy) + '</li>').join('') + '</ul>' : '<p>暂无偏航记录</p>'}
         <p>${esc(todayCases[0] ? '明天可以先试：' + todayCases[0].strategy : '明天可以先选一件重要的小事。')}</p></div>
-        <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note">${esc(row?.note)}</textarea></label>
+        <form data-v1-form="daily"><label>补充复盘或口述草稿<textarea id="v1-reflection" class="field" maxlength="1500" rows="3" name="note" data-review-day="${esc(day)}">${esc(row?.note)}</textarea></label>
         <div class="controls"><button class="primary">保存复盘</button>${btn('skipReview','跳过详细复盘')}${voiceButton('v1-reflection')}</div></form>
         ${row ? '<p class="subtle">' + (row.skipped ? '已跳过详细复盘' : '复盘已保存') + '</p>' : ''}`) +
         '</div><div id="tomorrow-plan">' +
@@ -373,7 +373,7 @@
     }
     function ideasPage(v) {
       return card('灵感暂存', `<form data-v1-form="idea"><label>记下现在不必展开的事<textarea class="field" required id="v1-idea" name="text" maxlength="500"></textarea></label>
-        <div class="controls"><button class="primary">保存并回到原任务</button>${voice ? btn('voice','语音记录','v1-idea') : ''}</div></form>
+        <div class="controls"><button class="primary">保存并回到原任务</button>${voiceButton('v1-idea')}</div></form>
         ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`);
     }
     function memorySettings(v) {
@@ -390,10 +390,16 @@
       return ({chat:chatPage,schedule:schedulePage,settings:settingsPage,review:reviewPage,library:libraryPage,ideas:ideasPage}[section])(v);
     }
     function paint() {
-      const draft = document.getElementById('v1-input')?.value;
+      const inputs=['v1-input','v1-reflection','v1-idea'];
+      const drafts=inputs.map(id=>{
+        const field=document.getElementById(id);
+        return [id,field?.value,field?.dataset?.reviewDay];
+      });
       render();
-      const field = document.getElementById('v1-input');
-      if (field && draft) field.value = draft;
+      for(const [id,value,reviewDay] of drafts){
+        const field=document.getElementById(id);
+        if(field && value!==undefined && field.dataset?.reviewDay===reviewDay)field.value=value;
+      }
       clock();
       save();
     }
@@ -543,11 +549,11 @@
       toast('奖励设置已保存');
     }
     function voiceButton(id) {
-      if(!voice)return '';
+      if(!voice)return '<span class="subtle">此浏览器可使用设备键盘听写。</span>';
       const active=speechSession?.id===id;
       const label=active?'结束语音输入':'开始语音输入';
       return `<button type="button" class="secondary voice-button" data-v1="voice" data-value="${id}"
-        aria-label="${label}" aria-pressed="${active}" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>
+        aria-label="${label}" aria-pressed="${active}" aria-describedby="${id}-voice-feedback" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>
         <span class="subtle voice-feedback" id="${id}-voice-feedback" role="status">${esc(speechFeedback.get(id)??'')}</span>`;
     }
     function updateSpeech(id,text) {
@@ -560,6 +566,13 @@
       button.setAttribute('aria-pressed',String(active));
       button.setAttribute('aria-label',label);
       button.title=label;
+    }
+    function cancelSpeech() {
+      if(!speechSession)return;
+      const {id,recognizer}=speechSession;
+      speechSession=null;
+      updateSpeech(id,'已结束听写。');
+      try { recognizer.abort(); } catch { /* Ignore an already-ended recognition session. */ }
     }
     function recognize(id) {
       if (!voice || !document.getElementById(id)) return;
@@ -582,7 +595,7 @@
         return;
       }
       const recognizer=new voice();
-      const session={id,recognizer,listening:false,stopping:false,received:false};
+      const session={id,recognizer,listening:false,stopping:false,received:false,finalized:new Set()};
       speechSession=session;
       const finish=text=>{
         if(speechSession!==session)return;
@@ -590,6 +603,8 @@
         updateSpeech(id,text);
       };
       recognizer.lang='zh-CN';
+      recognizer.continuous=true;
+      recognizer.interimResults=false;
       recognizer.onstart=()=>{
         if(speechSession!==session)return;
         session.listening=true;
@@ -597,10 +612,19 @@
       };
       recognizer.onresult=event=>{
         if(speechSession!==session)return;
-        const transcript=Array.from(event.results).slice(event.resultIndex??0)
-          .filter(result=>result.isFinal!==false).map(result=>result[0]?.transcript??'').join('').trim();
         const field=document.getElementById(id);
-        if(!transcript||!field)return;
+        if(!field)return;
+        const parts=[];
+        for(let i=event.resultIndex??0;i<event.results.length;i++){
+          const result=event.results[i];
+          if(result.isFinal===false||session.finalized.has(i))continue;
+          const text=result[0]?.transcript?.trim();
+          if(!text)continue;
+          session.finalized.add(i);
+          parts.push(text);
+        }
+        if(!parts.length)return;
+        const transcript=parts.join(' ');
         const combined=(field.value+' '+transcript).trim();
         field.value=field.maxLength>0?combined.slice(0,field.maxLength):combined;
         session.received=true;
@@ -871,7 +895,7 @@
         return;
       }
       if (el.matches('[data-reminder-time]')) sortReminderRows(el);
-      if (el.id==='v1-review-date' && el.value) {day=el.value; paint();}
+      if (el.id==='v1-review-date' && el.value) {if(day!==el.value)cancelSpeech();day=el.value;paint();}
       if (el.id==='v1-memory-on') {v.settings.memory=el.checked;save();}
       if (el.matches('[data-v1-quote]')) {v.preferences[el.dataset.v1Quote]=el.value;paint();}
     });
@@ -950,9 +974,10 @@
         paint();
       } catch(error){toast(error.message);}
     });
+    window.addEventListener('pagehide',cancelSpeech);
     if (api) void checkConnection();
     return {
-      screen, selectTab, clock, playReminderSound, playCompletionSound, remindersAudible, refreshUsage,
+      screen, selectTab, clock, cancelSpeech, playReminderSound, playCompletionSound, remindersAudible, refreshUsage,
       reconcileTasks:()=>V.reconcileTasks(getState()),refreshChat:paint,
       tick: now => {
         const v = vNow();

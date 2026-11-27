@@ -44,6 +44,7 @@
     settingsSync?.onSave();
   }
   function go(next) {
+    if(page!==next)v1View.cancelSpeech();
     page = next;
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });

@@ -319,42 +319,67 @@ function mount(state,run,withModel=true,elements={},SpeechRecognition,navigator)
   events['planet-trial']({detail:{ready:false}});
   const dispatch=(type,event)=>listen[type].forEach(fn=>fn({...event,type}));
   return {markup:(section='chat')=>api.screen(section),dispatch,click:(v1,value='')=>dispatch('click',{target:{closest:()=>({dataset:{v1,value}})}}),window,toasts,
+    hidePage:()=>events.pagehide(),
     send:message=>dispatch('submit',{target:{dataset:{v1Form:'chat'},values:{message},reset(){}},
       preventDefault(){}})};
 }
-test('voice button is icon-only and starts without pre-focusing a field',()=>{
+for(const [page,id] of [['chat','v1-input'],['review','v1-reflection'],['ideas','v1-idea']]){
+test(page+' dictation uses the same microphone, fills the right field and never submits',()=>{
   const x=start('pm'), feedback={}, field={value:'原有草稿',maxLength:1500,focus(){this.focused=true;}};
   let speech, starts=0;
   class Recognizer {
     constructor(){speech=this;}
     start(){starts++;}
     stop(){this.stopped=true;}
+    abort(){this.aborted=true;}
   }
-  const ui=mount(x.state,undefined,false,{'v1-reflection':field,'v1-reflection-voice-feedback':feedback},Recognizer);
-  assert.match(ui.markup('review'),/class="mic-icon" aria-hidden="true"/);
+  const ui=mount(x.state,undefined,false,{[id]:field,[id+'-voice-feedback']:feedback},Recognizer);
+  const control=()=>ui.markup(page);
+  assert.match(control(),/class="mic-icon" aria-hidden="true"/);
+  assert.match(control(),new RegExp('aria-describedby="'+id+'-voice-feedback"'));
+  assert.doesNotMatch(control(),/>语音记录<\/button>/);
   assert.match(ui.markup('review'),/class="weekly-records-heading">任务完成情况/);
   assert.equal((ui.markup('review').match(/class="weekly-detail-card"/g)??[]).length,3);
   assert.doesNotMatch(ui.markup('schedule'),/保持网页打开/);
-  ui.click('voice','v1-reflection');
-  ui.click('voice','v1-reflection');
-  assert.match(ui.markup('review'),/data-value="v1-reflection"\s+aria-label="结束语音输入" aria-pressed="true"/);
+  ui.click('voice',id);
+  ui.click('voice',id);
+  assert.match(control(),new RegExp('data-value="'+id+'"\\s+aria-label="结束语音输入" aria-pressed="true"'));
   assert.equal(starts,1);
   assert.equal(field.focused,undefined);
+  assert.equal(speech.lang,'zh-CN');
+  assert.equal(speech.continuous,true);
   speech.onstart();
   assert.match(feedback.textContent,/正在听，再按一次麦克风停止听写/);
-  ui.click('voice','v1-reflection');
+  const first=[{transcript:'今天读了两页'}],second=[{transcript:'还有一个灵感'}];
+  speech.onresult({resultIndex:0,results:[first]});
+  ui.click('voice',id);
   assert.equal(speech.stopped,true);
-  speech.onresult({resultIndex:0,results:[[{transcript:'今天读了两页'}]]});
+  speech.onresult({resultIndex:0,results:[first,second]});
   speech.onend();
-  assert.equal(field.value,'原有草稿 今天读了两页');
+  assert.equal(field.value,'原有草稿 今天读了两页 还有一个灵感');
   assert.equal(field.focused,true);
   assert.match(feedback.textContent,/已填入/);
-  ui.click('voice','v1-reflection');
+  assert.equal(x.v.ideas.length,0);
+  assert.deepEqual(x.v.reviews,{});
+  assert.ok(!x.v.messages.some(row=>row.text.includes('今天读了两页')));
+  ui.click('voice',id);
   speech.onerror({error:'not-allowed'});
   speech.onend();
   assert.match(feedback.textContent,/网站权限里允许麦克风/);
-  assert.match(ui.markup('review'),/data-value="v1-reflection"\s+aria-label="开始语音输入" aria-pressed="false"/);
+  assert.match(control(),new RegExp('data-value="'+id+'"\\s+aria-label="开始语音输入" aria-pressed="false"'));
+  ui.click('voice',id);
+  speech.onerror({error:'network'});
+  assert.match(feedback.textContent,/语音识别服务暂时连不上/);
+  ui.click('voice',id);
+  const pageSpeech=speech;
+  ui.hidePage();
+  assert.equal(pageSpeech.aborted,true);
+  pageSpeech.onresult({resultIndex:0,results:[[{transcript:'离开页面后的结果'}]]});
+  assert.doesNotMatch(field.value,/离开页面/);
+  const unsupported=mount(x.state,undefined,false).markup(page);
+  assert.match(unsupported,/设备键盘听写/);
 });
+}
 test('coach styles are visible and task controls are on their own pages',()=>{
   const x=start('pm'),ui=mount(x.state,undefined,false);
   const settings=ui.markup('settings');

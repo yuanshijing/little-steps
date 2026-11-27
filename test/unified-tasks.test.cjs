@@ -171,7 +171,7 @@ test('my plan shows the selected date and reveals check-in choices on demand',as
   const storage=new Map();
   P.write({setItem:(key,value)=>storage.set(key,value)},state);
   const window={Planet:P,PlanetV1:V,PlanetScheduler:S,
-    PlanetV1View:{mount(options){getState.read=options.state;return {screen:()=>'',clock(){},tick(){},playCompletionSound(){}};}},
+    PlanetV1View:{mount(options){getState.read=options.state;return {screen:()=>'',clock(){},tick(){},cancelSpeech(){},playCompletionSound(){}};}},
     addEventListener(){},scrollTo(){}};
   const document={getElementById:id=>fields[id]??null,querySelectorAll:()=>[],
     addEventListener:(type,fn)=>listeners[type]=fn};
