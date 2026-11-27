@@ -450,25 +450,30 @@ test('memory uses examples and accepts manual entries without a source classific
   assert.equal(Object.hasOwn(x.v.memory.at(-1),'source'),false);
   assert.deepEqual(V.modelContext(x.state,'').memories,[{text:'原有记忆'},{text:'一次给我一步'}]);
 });
-test('fixed choices sit between the message log and the composer',()=>{
+test('fixed choices and bedtime review sit between the message log and the composer',()=>{
   const chat={scrollHeight:420,scrollIntoView(){this.revealed=true;}};
   const x=start('pm'),ui=mount(x.state,undefined,false,{'v1-chat':chat});
   const today=P.dateKey();
-  x.v.reviewPrompts={['daily/'+today]:{day:today,kind:'daily',pending:true}};
+  x.v.reviewPrompts={
+    ['daily/'+today]:{day:today,kind:'daily',pending:true},
+    ['weekly/'+V.monday(today)]:{day:today,kind:'weekly',pending:true},
+  };
   x.v.queue=[{id:'dinner',day:today}];
   V.record(x.v,today,'dinner').notifiedAt=1;
   const markup=ui.markup();
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
-  assert.match(markup,/<\/section>\s*<form data-v1-form="chat"><label>和小星聊聊/);
+  assert.match(markup,/<\/div><\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
   const choicesAt=markup.indexOf('<section class="chat-choices"');
   const log=markup.slice(markup.indexOf('id="v1-chat"'),choicesAt);
   assert.match(log,/class="bubble ai"/);
   assert.match(log,/<\/div><\/div>\s*<\/div>\s*$/);
   assert.doesNotMatch(log,/data-v1="choice"/);
-  assert.match(markup.slice(choicesAt,markup.indexOf('data-v1-form="chat"')),/data-v1="choice"/);
+  const beforeComposer=markup.slice(choicesAt,markup.indexOf('data-v1-form="chat"'));
+  assert.match(beforeComposer,/data-v1="choice"[\s\S]*<strong>睡前复盘<\/strong>[\s\S]*开始简短复盘/);
   assert.match(log,/处理这条提醒/);
-  assert.match(log,/开始简短复盘/);
+  assert.match(log,/开始每周复盘/);
+  assert.doesNotMatch(log,/开始简短复盘/);
   assert.doesNotMatch(markup.slice(markup.indexOf('data-v1-form="chat"')),/data-v1="choice"/);
   ui.dispatch('click',{target:{closest:()=>({dataset:{v1:'choice',value:x.v.active.revision+'/ready'},closest:()=>chat})}});
   assert.equal(x.v.active.stage,'begin');
