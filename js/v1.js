@@ -431,16 +431,17 @@
       !P.outcomes.includes(state.instances[day+'/'+task.id]?.status));
     const underway=pending.filter(task=>['active','interrupted'].includes(state.instances[day+'/'+task.id]?.status));
     const task=a ? actualTask(state,v,a) : underway.length===1 ? underway[0] : null;
+    const contextId=a?.id ?? (task ? reminderId(task) : undefined);
     const confirmed=confirmedPlan(state,day).filter(row=>!row.id||!P.outcomes.includes(state.instances[day+'/'+row.id]?.status));
     const confirmedIds=new Set(confirmed.map(row=>row.id));
     const plan=[...confirmed,...pending.filter(row=>!confirmedIds.has(row.id))].slice(0,8);
-    const scenes=[a?.id,v.records[item?.originKey]?.id,'all'];
+    const scenes=[contextId,v.records[item?.originKey]?.id,'all'];
     const strategies=a ? v.events.filter(row=>row.type==='return').map(row=>v.records[row.key])
       .filter(row=>row?.strategy && (row.scene===a.id || row.barrier===item.barrier))
       .slice(-3).map(row=>row.strategy+'（已确认回归）') : [];
     if(item?.strategy) strategies.push(item.strategy+'（本次建议，效果待确认）');
     if(item?.backAt)strategies.push('用户已确认回到原任务');
-    return {text,scene:a?.id ?? 'all',reminderId:a?.id,status:a?.stage ?? '',
+    return {text,scene:contextId ?? 'all',reminderId:contextId,status:a?.stage ?? '',
       actualTask:task ? [task.title,task.firstStep].filter(Boolean).join(' · ') : '当前任务（名称未确认）',
       fixedTurns:a?.fixedTrace ?? [],userState:a?.fixedTrace?.at(-1)?.selection ?? text,
       plan:plan.map(row=>[row.when,row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n'),

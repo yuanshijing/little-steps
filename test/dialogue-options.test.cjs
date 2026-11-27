@@ -709,6 +709,7 @@ test('coach context retains the active plan goal when the user reports a distrac
   P.transition(state,finished,day,'completed');
   state.plans[day]={items:[work,finished]};
   const context=V.modelContext(state,'我在看一个刚想到的采购点子。');
+  assert.equal(context.reminderId,V.reminderId(work));
   assert.match(context.actualTask,/写论文.*打开论文提纲/);
   assert.match(context.plan,/写论文/);
   assert.doesNotMatch(context.plan,/查一篇文献/);
