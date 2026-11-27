@@ -192,7 +192,7 @@
             <input type="radio" name="coach-style" data-coach-style value="${value}" ${getState().settings.style===value?'checked':''}>
             <span><strong>${label}</strong><small>${description}</small></span>
           </label>`).join('')}</div>`) +
-        memorySettings(v) +
+        memorySettings(v) + coachGuideSettings() +
         card('提醒与奖励音效', `<form data-v1-form="settings">
         <label>总音量 <output id="v1-volume-value">${Math.round(volumeScale(v.settings.volume)*100)}%</output>
         <input class="field" type="range" name="volume" min="0" max="200" step="5" value="${Math.round(volumeScale(v.settings.volume)*100)}" aria-label="总音量"></label>
@@ -239,11 +239,22 @@
       return `<section class="review-summary" id="summary-${kind}"><div class="review-summary-title"><h3>小星的总结</h3>
         <span>${stored ? '上次生成 · 大模型' : '根据记录整理'}</span></div>
         ${(stored?.text ?? summary).split(/\n+/).filter(Boolean).map(text=>`<p>${esc(text)}</p>`).join('')}
-        ${modelEnabled ? `<p class="subtle">生成会把相关任务记录、偏航案例和复盘补充发送给已配置的模型。</p>
+        ${modelEnabled ? `<p class="subtle">生成会把相关任务记录、偏航案例、复盘补充和已保存的个人教练指导发送给已配置的模型。</p>
         ${reviewPending === key ? '<p class="subtle" role="status">小星正在整理……</p>' : btn('generateReview',stored?'重新生成大模型总结':'用大模型生成总结',kind)}`
           : '<p class="subtle">当前未连接大模型服务。</p>'}</section>`;
     }
+    function coachGuideKey() {
+      const account = window.PlanetTrial;
+      const owner = account ? account.accountId?.() : 'device';
+      return owner ? 'little-steps.coach-guide.' + owner : '';
+    }
+    function readCoachGuide(key=coachGuideKey()) {
+      try { return key ? localStorage.getItem(key) ?? '' : ''; }
+      catch { return ''; }
+    }
     async function callModel(route,input) {
+      const coachGuide = readCoachGuide();
+      if (coachGuide) input = {...input,coachGuide};
       if (usingTrial()) return window.PlanetTrial.run(route,input);
       if (publicModel) return publicModel.run(route,input);
       const response = await fetch('/api/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -375,6 +386,15 @@
       return card('灵感暂存', `<form data-v1-form="idea"><label>记下现在不必展开的事<textarea class="field" required id="v1-idea" name="text" maxlength="500"></textarea></label>
         <div class="controls"><button class="primary">保存并回到原任务</button>${voiceButton('v1-idea')}</div></form>
         ${v.ideas.slice().reverse().map(row => `<div class="v1-line"><span>${esc(row.text)}</span>${btn('removeIdea','删除',row.id)}</div>`).join('')}`);
+    }
+    function coachGuideSettings() {
+      const key = coachGuideKey();
+      return card('个人教练指导', key ? `<form method="post" data-v1-form="coach-guide" data-guide-owner="${esc(key)}">
+        <label>长期指导原则<textarea class="field" name="guide" rows="5" maxlength="8000"
+          autocomplete="off" aria-describedby="coach-guide-note">${esc(readCoachGuide(key))}</textarea></label>
+        <p class="subtle" id="coach-guide-note">可粘贴一整份指导文档。内容保存在此浏览器下的当前账号中，在发送 AI 消息或生成 AI 复盘时随请求发给 DeepSeek。清空并保存可移除。</p>
+        <button class="secondary">保存个人教练指导</button></form>` :
+        '<p class="subtle">登录后可以保存这个账号的个人教练指导。</p>');
     }
     function memorySettings(v) {
       return card('长期记忆', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
@@ -937,6 +957,15 @@
       try {
         switch(form.dataset.v1Form) {
           case 'deepseek': return void connectDeepSeek(form,data.key);
+          case 'coach-guide': {
+            const key = coachGuideKey();
+            if (!key || key !== form.dataset.guideOwner) throw Error('账号已切换，请重新打开设置');
+            const guide = P.clean(data.guide,8000);
+            if (guide) localStorage.setItem(key,guide);
+            else localStorage.removeItem(key);
+            toast(guide?'个人教练指导已保存':'个人教练指导已清除');
+            break;
+          }
           case 'schedule':
             if (configureSchedule(data) === false) return;
             break;

@@ -273,7 +273,7 @@
         window.dispatchEvent(new CustomEvent('planet-trial',{detail:result}));
       }
     }
-    if(enabled)window.PlanetTrial={run:trialCall,refresh:refreshTrial};
+    if(enabled)window.PlanetTrial={run:trialCall,refresh:refreshTrial,accountId:()=>user?.id};
     function sessionChanged(session) {
       authResolved=true;
       clearTimeout(authTimeout);

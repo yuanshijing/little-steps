@@ -720,14 +720,15 @@ test('model paths retain matching prompts and sanitize continuous context',async
   const personal=readFileSync('js/deepseek-public.js','utf8');
   const line=(src,key)=>src.split('\n').find(s=>s.includes('const '+key+' ='));
   for(const k of ['SYSTEM','REVIEW_SYSTEM'])assert.equal(line(trial,k),line(personal,k));
-  assert.match(line(trial,'SYSTEM'),/现在就能做的最小动作.*只把用户明确确认过的进展当作已发生.*先拿一套换洗衣物/);
-  assert.match(line(trial,'SYSTEM'),/ADHD 执行功能教练.*工作、科研和生活计划.*别默认顺着临时事项继续.*明确表达自己确实想做.*尽快收尾.*必要的休息.*只问一个最关键的问题/);
+  assert.match(line(trial,'SYSTEM'),/ADHD 友好型执行功能陪伴教练.*身体健康、睡眠和基本生活.*待验证假设.*可复用产出.*明确收尾点.*用户只请求启动时，直接给一个具体动作/);
+  assert.match(line(trial,'REVIEW_SYSTEM'),/未记录不能当作未完成.*最多三项重点.*最多给两项可验证的微调/);
   let handle,fromTrial,fromPersonal;
   const fakeReply={reply:'测试',quickReplies:['旧模型返回的选项']};
   const completion=Response.json({usage:{total_tokens:1},choices:[{message:{content:JSON.stringify(fakeReply)}}]});
   const auth={id:'test-only',email:'fixture@example.test',email_confirmed_at:'2026-11-26'};
   const env={SUPABASE_URL:'https://fixture.test',DEEPSEEK_API_KEY:'fixture'};
-  const input={text:'只解释刚才的新困难',scene:'custom-test',reminderId:'custom-test',status:'customHelp',
+  const guide='个人指导测试\n'+'甲'.repeat(5100)+'\n末尾';
+  const input={text:'只解释刚才的新困难',scene:'custom-test',reminderId:'custom-test',status:'customHelp',coachGuide:guide,
     actualTask:'喝水',fixedTurns:[{stage:'initial',selection:'需要帮助'},{stage:'customHelp',selection:'还是没开始'}],
     recent:Array.from({length:10},(_,i)=>({role:'you',text:'对话 '+i})), strategies:['先准备水杯']};
   const context=body=>JSON.parse(JSON.parse(body).messages.at(-1).content);
@@ -748,6 +749,7 @@ test('model paths retain matching prompts and sanitize continuous context',async
   assert.equal(reply.status,200);
   assert.deepEqual((await reply.json()).quickReplies,[]);
   assert.deepEqual(fromTrial,fromPersonal);
+  assert.equal(fromTrial.coachGuide,guide);
   assert.equal(fromTrial.reminderId,'custom-test');
   assert.equal(fromTrial.recent.length,8);
   assert.match(fromTrial.recent.at(-1).text,/9$/);
