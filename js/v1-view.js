@@ -554,7 +554,8 @@
       const label=active?'结束语音输入':'开始语音输入';
       return `<button type="button" class="secondary voice-button" data-v1="voice" data-value="${id}"
         aria-label="${label}" aria-pressed="${active}" aria-describedby="${id}-voice-feedback" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>
-        <span class="subtle voice-feedback" id="${id}-voice-feedback" role="status">${esc(speechFeedback.get(id)??'')}</span>`;
+        <span class="subtle voice-feedback" id="${id}-voice-feedback" role="status">${esc(speechFeedback.get(id)??'')}</span>
+        <span class="subtle voice-preview" id="${id}-voice-preview">${esc(active?speechSession.preview:'')}</span>`;
     }
     function updateSpeech(id,text) {
       speechFeedback.set(id,text);
@@ -571,8 +572,13 @@
       if(!speechSession)return;
       const {id,recognizer}=speechSession;
       speechSession=null;
+      showSpeechPreview(id,'');
       updateSpeech(id,'已结束听写。');
       try { recognizer.abort(); } catch { /* Ignore an already-ended recognition session. */ }
+    }
+    function showSpeechPreview(id,text) {
+      const preview=document.getElementById(id+'-voice-preview');
+      if(preview)preview.textContent=text;
     }
     function recognize(id) {
       if (!voice || !document.getElementById(id)) return;
@@ -595,16 +601,24 @@
         return;
       }
       const recognizer=new voice();
-      const session={id,recognizer,listening:false,stopping:false,received:false,finalized:new Set()};
+      const session={id,recognizer,listening:false,stopping:false,received:false,preview:'',finalized:new Set()};
       speechSession=session;
       const finish=text=>{
         if(speechSession!==session)return;
         speechSession=null;
+        showSpeechPreview(id,'');
         updateSpeech(id,text);
+      };
+      const appendTranscript=text=>{
+        const field=document.getElementById(id);
+        if(!text||!field)return;
+        const combined=(field.value+' '+text).trim();
+        field.value=field.maxLength>0?combined.slice(0,field.maxLength):combined;
+        session.received=true;
       };
       recognizer.lang='zh-CN';
       recognizer.continuous=true;
-      recognizer.interimResults=false;
+      recognizer.interimResults=true;
       recognizer.onstart=()=>{
         if(speechSession!==session)return;
         session.listening=true;
@@ -612,23 +626,19 @@
       };
       recognizer.onresult=event=>{
         if(speechSession!==session)return;
-        const field=document.getElementById(id);
-        if(!field)return;
-        const parts=[];
-        for(let i=event.resultIndex??0;i<event.results.length;i++){
+        const parts=[],pending=[];
+        for(let i=0;i<event.results.length;i++){
           const result=event.results[i];
-          if(result.isFinal===false||session.finalized.has(i))continue;
+          if(session.finalized.has(i))continue;
           const text=result[0]?.transcript?.trim();
           if(!text)continue;
+          if(result.isFinal===false){pending.push(text);continue;}
           session.finalized.add(i);
           parts.push(text);
         }
-        if(!parts.length)return;
-        const transcript=parts.join(' ');
-        const combined=(field.value+' '+transcript).trim();
-        field.value=field.maxLength>0?combined.slice(0,field.maxLength):combined;
-        session.received=true;
-        field.focus({preventScroll:true});
+        appendTranscript(parts.join(' '));
+        session.preview=pending.join(' ');
+        showSpeechPreview(id,session.preview);
       };
       recognizer.onerror=event=>finish({
         'not-allowed':micBlocked,
@@ -637,7 +647,12 @@
         'no-speech':'没有听清，请再点一次麦克风。',
         network:'语音识别服务暂时连不上，可以先打字。',
       }[event.error]??'语音识别未完成，可以再试一次。');
-      recognizer.onend=()=>finish(session.received?'已填入输入框，可以检查后再保存或发送。':'没有收到语音，请再试一次。');
+      recognizer.onend=()=>{
+        if(speechSession!==session)return;
+        appendTranscript(session.preview);
+        if(session.received)document.getElementById(id)?.focus({preventScroll:true});
+        finish(session.received?'已填入输入框，可以检查后再保存或发送。':'没有收到语音，请再试一次。');
+      };
       updateSpeech(id,'正在启动麦克风…');
       try { recognizer.start(); }
       catch { finish('无法启动麦克风，请检查浏览器权限。'); }

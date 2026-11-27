@@ -160,6 +160,8 @@ button:focus-visible { outline-color: #9a78df; }
 .mic-icon::after { top: 7px; width: 14px; height: 10px; box-sizing: border-box; border: 2px solid currentColor; border-top: 0; border-radius: 0 0 9px 9px; }
 .voice-feedback { align-self: center; overflow-wrap: anywhere; }
 .voice-feedback:empty { display: none; }
+.voice-preview { flex-basis: 100%; padding: 6px 10px; border-inline-start: 2px solid var(--lav); background: #f8f4ff; overflow-wrap: anywhere; }
+.voice-preview:empty { display: none; }
 .review-note { background: #f8f4ff; padding: 14px 16px; margin-bottom: 20px; border-radius: 12px; }
 .review-note h3 { margin-top: 0; }
 .review-summary, .review-prompt { padding: 14px 17px; margin: 12px 0 18px; background: #f4effc; border: 1px solid #e9def9; border-radius: 12px; }

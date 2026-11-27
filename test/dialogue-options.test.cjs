@@ -325,7 +325,7 @@ function mount(state,run,withModel=true,elements={},SpeechRecognition,navigator)
 }
 for(const [page,id] of [['chat','v1-input'],['review','v1-reflection'],['ideas','v1-idea']]){
 test(page+' dictation uses the same microphone, fills the right field and never submits',()=>{
-  const x=start('pm'), feedback={}, field={value:'原有草稿',maxLength:1500,focus(){this.focused=true;}};
+  const x=start('pm'), feedback={}, preview={}, field={value:'原有草稿',maxLength:1500,focus(){this.focused=true;}};
   let speech, starts=0;
   class Recognizer {
     constructor(){speech=this;}
@@ -333,7 +333,7 @@ test(page+' dictation uses the same microphone, fills the right field and never 
     stop(){this.stopped=true;}
     abort(){this.aborted=true;}
   }
-  const ui=mount(x.state,undefined,false,{[id]:field,[id+'-voice-feedback']:feedback},Recognizer);
+  const ui=mount(x.state,undefined,false,{[id]:field,[id+'-voice-feedback']:feedback,[id+'-voice-preview']:preview},Recognizer);
   const control=()=>ui.markup(page);
   assert.match(control(),/class="mic-icon" aria-hidden="true"/);
   assert.match(control(),new RegExp('aria-describedby="'+id+'-voice-feedback"'));
@@ -348,15 +348,26 @@ test(page+' dictation uses the same microphone, fills the right field and never 
   assert.equal(field.focused,undefined);
   assert.equal(speech.lang,'zh-CN');
   assert.equal(speech.continuous,true);
+  assert.equal(speech.interimResults,true);
   speech.onstart();
   assert.match(feedback.textContent,/正在听，再按一次麦克风停止听写/);
   const first=[{transcript:'今天读了两页'}],second=[{transcript:'还有一个灵感'}];
+  const interim=text=>Object.assign([{transcript:text}],{isFinal:false});
+  speech.onresult({resultIndex:0,results:[interim('今天读')]});
+  assert.equal(preview.textContent,'今天读');
+  assert.equal(field.value,'原有草稿');
+  speech.onresult({resultIndex:0,results:[interim('今天读了')]});
+  assert.equal(preview.textContent,'今天读了');
   speech.onresult({resultIndex:0,results:[first]});
+  assert.equal(preview.textContent,'');
+  speech.onresult({resultIndex:1,results:[first,interim('还有一个')]});
+  assert.equal(preview.textContent,'还有一个');
   ui.click('voice',id);
   assert.equal(speech.stopped,true);
   speech.onresult({resultIndex:0,results:[first,second]});
   speech.onend();
   assert.equal(field.value,'原有草稿 今天读了两页 还有一个灵感');
+  assert.equal(preview.textContent,'');
   assert.equal(field.focused,true);
   assert.match(feedback.textContent,/已填入/);
   assert.equal(x.v.ideas.length,0);
@@ -372,8 +383,10 @@ test(page+' dictation uses the same microphone, fills the right field and never 
   assert.match(feedback.textContent,/语音识别服务暂时连不上/);
   ui.click('voice',id);
   const pageSpeech=speech;
+  pageSpeech.onresult({resultIndex:0,results:[interim('未结束的话')]});
   ui.hidePage();
   assert.equal(pageSpeech.aborted,true);
+  assert.equal(preview.textContent,'');
   pageSpeech.onresult({resultIndex:0,results:[[{transcript:'离开页面后的结果'}]]});
   assert.doesNotMatch(field.value,/离开页面/);
   const unsupported=mount(x.state,undefined,false).markup(page);
