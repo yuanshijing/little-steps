@@ -689,11 +689,24 @@ test('view: deep reviews request a model only after the explicit action',async()
   assert.equal(calls[0].route,'review');
   assert.ok(Object.values(x.v.reviewSummaries).some(row=>row.text==='本周记录的进展。'));
 });
+test('explicit startup help shows just the short next action and keeps other replies intact',async()=>{
+  const x=start('bath');
+  const ui=mount(x.state,async(_,input)=> input.text.includes('头晕')
+    ? {reply:'先坐下来，请人陪你。如果不适加重，请立即就医。',nextAction:'坐下来。'}
+    : {reply:'你已经准备好换洗衣物了，这是事实。你正站在启动的门口。',nextAction:'先拿一套换洗衣物。'});
+  ui.send('我要去洗澡，请帮助我启动。');
+  await wait();
+  assert.equal(x.v.messages.at(-1).text,'先拿一套换洗衣物。');
+  ui.send('我头晕，还想洗澡，怎么开始？');
+  await wait();
+  assert.match(x.v.messages.at(-1).text,/立即就医/);
+});
 test('model paths retain matching prompts and sanitize continuous context',async()=>{
   const trial=readFileSync('supabase/functions/trial-coach/index.ts','utf8');
   const personal=readFileSync('js/deepseek-public.js','utf8');
   const line=(src,key)=>src.split('\n').find(s=>s.includes('const '+key+' ='));
   for(const k of ['SYSTEM','REVIEW_SYSTEM'])assert.equal(line(trial,k),line(personal,k));
+  assert.match(line(trial,'SYSTEM'),/现在就能做的最小动作.*只把用户明确确认过的进展当作已发生.*先拿一套换洗衣物/);
   let handle,fromTrial,fromPersonal;
   const fakeReply={reply:'测试',quickReplies:['旧模型返回的选项']};
   const completion=Response.json({usage:{total_tokens:1},choices:[{message:{content:JSON.stringify(fakeReply)}}]});

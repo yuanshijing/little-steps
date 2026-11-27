@@ -742,7 +742,12 @@
       try {
         const value=await callModel('coach',input);
         if(typeof value.reply!=='string' || !value.reply.trim())throw Error('无可用回复');
-        if(getState()===state && v.active?.thread===thread)V.message(v,value.reply,'coach',detail);
+        const startup=/(?:帮(?:助)?我[^。！？!?\n]{0,14}(?:启动|开始|起步)|(?:要|怎么|如何)开始|下一步[^。！？!?\n]{0,6}(?:做|干)什么|最小(?:启动)?(?:动作|步骤))/.test(text);
+        const action=typeof value.nextAction==='string'?value.nextAction.trim():'';
+        const singleAction=action.length<=45 && !/[。！？.!?；;\n]/.test(action.replace(/[。！？.!?]$/,''));
+        const urgent=/急救|急诊|紧急服务|立即就医/.test(value.reply);
+        const response=startup && action && singleAction && !urgent ? action : value.reply;
+        if(getState()===state && v.active?.thread===thread)V.message(v,response,'coach',detail);
       } catch {
         if(getState()===state)toast('AI 暂未回复，可以继续使用下方的基础状态选项。');
       } finally {
