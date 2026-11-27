@@ -426,7 +426,14 @@
     return planned.length===1 ? planned[0] : null;
   }
   function modelContext(state,text) {
-    const v=init(state),a=v.active,item=a && v.records[a.key],task=a && actualTask(state,v,a);
+    const v=init(state),a=v.active,item=a && v.records[a.key],day=a?.day??P.dateKey();
+    const pending=state.tasks.filter(task=>P.occurs(task,day) && !P.isLegacyWakeTask(task) &&
+      !P.outcomes.includes(state.instances[day+'/'+task.id]?.status));
+    const underway=pending.filter(task=>['active','interrupted'].includes(state.instances[day+'/'+task.id]?.status));
+    const task=a ? actualTask(state,v,a) : underway.length===1 ? underway[0] : null;
+    const confirmed=confirmedPlan(state,day).filter(row=>!row.id||!P.outcomes.includes(state.instances[day+'/'+row.id]?.status));
+    const confirmedIds=new Set(confirmed.map(row=>row.id));
+    const plan=[...confirmed,...pending.filter(row=>!confirmedIds.has(row.id))].slice(0,8);
     const scenes=[a?.id,v.records[item?.originKey]?.id,'all'];
     const strategies=a ? v.events.filter(row=>row.type==='return').map(row=>v.records[row.key])
       .filter(row=>row?.strategy && (row.scene===a.id || row.barrier===item.barrier))
@@ -436,12 +443,7 @@
     return {text,scene:a?.id ?? 'all',reminderId:a?.id,status:a?.stage ?? '',
       actualTask:task ? [task.title,task.firstStep].filter(Boolean).join(' · ') : '当前任务（名称未确认）',
       fixedTurns:a?.fixedTrace ?? [],userState:a?.fixedTrace?.at(-1)?.selection ?? text,
-      plan:(()=>{
-        const day=a?.day??P.dateKey(), rows=confirmedPlan(state,day);
-        const ids=new Set(rows.map(row=>row.id));
-        return [...rows,...state.tasks.filter(task=>P.occurs(task,day)&&!ids.has(task.id)&&!P.outcomes.includes(state.instances[day+'/'+task.id]?.status))]
-          .slice(0,8).map(row=>[row.when,row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n');
-      })(),
+      plan:plan.map(row=>[row.when,row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n'),
       style:state.settings.style, strategies,
       recent:a?.thread ? v.messages.filter(row=>row.thread===a.thread).slice(-8) : v.messages.slice(-5),
       memories:v.settings.memory ? v.memory.filter(row=>scenes.includes(row.scene)).slice(-4).map(({text})=>({text})) : []};

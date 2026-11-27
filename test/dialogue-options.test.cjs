@@ -701,12 +701,26 @@ test('explicit startup help shows just the short next action and keeps other rep
   await wait();
   assert.match(x.v.messages.at(-1).text,/立即就医/);
 });
+test('coach context retains the active plan goal when the user reports a distraction',()=>{
+  const state=P.createState(),day=P.dateKey();
+  const work=P.upsertTask(state,{title:'写论文',day,when:'10:00',firstStep:'打开论文提纲'});
+  const finished=P.upsertTask(state,{title:'查一篇文献',day,when:'09:00',firstStep:'打开摘要'});
+  P.transition(state,work,day,'start');
+  P.transition(state,finished,day,'completed');
+  state.plans[day]={items:[work,finished]};
+  const context=V.modelContext(state,'我在看一个刚想到的采购点子。');
+  assert.match(context.actualTask,/写论文.*打开论文提纲/);
+  assert.match(context.plan,/写论文/);
+  assert.doesNotMatch(context.plan,/查一篇文献/);
+  assert.match(context.text,/采购点子/);
+});
 test('model paths retain matching prompts and sanitize continuous context',async()=>{
   const trial=readFileSync('supabase/functions/trial-coach/index.ts','utf8');
   const personal=readFileSync('js/deepseek-public.js','utf8');
   const line=(src,key)=>src.split('\n').find(s=>s.includes('const '+key+' ='));
   for(const k of ['SYSTEM','REVIEW_SYSTEM'])assert.equal(line(trial,k),line(personal,k));
   assert.match(line(trial,'SYSTEM'),/现在就能做的最小动作.*只把用户明确确认过的进展当作已发生.*先拿一套换洗衣物/);
+  assert.match(line(trial,'SYSTEM'),/ADHD 执行功能教练.*工作、科研和生活计划.*别默认顺着临时事项继续.*明确表达自己确实想做.*尽快收尾.*必要的休息.*只问一个最关键的问题/);
   let handle,fromTrial,fromPersonal;
   const fakeReply={reply:'测试',quickReplies:['旧模型返回的选项']};
   const completion=Response.json({usage:{total_tokens:1},choices:[{message:{content:JSON.stringify(fakeReply)}}]});
