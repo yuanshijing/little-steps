@@ -429,19 +429,24 @@ test('memory uses examples and accepts manual entries without a source classific
   assert.equal(Object.hasOwn(x.v.memory.at(-1),'source'),false);
   assert.deepEqual(V.modelContext(x.state,'').memories,[{text:'原有记忆'},{text:'一次给我一步'}]);
 });
-test('return action sits below chat messages and focus has a short label',()=>{
-  const x=start('pm'),ui=mount(x.state,undefined,false);
+test('composer follows the message log and the bottom return action reveals the new message',()=>{
+  const chat={scrollHeight:420,scrollIntoView(){this.revealed=true;}};
+  const x=start('pm'),ui=mount(x.state,undefined,false,{'v1-chat':chat});
   const markup=ui.markup();
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
-  assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('chat-message-actions'));
+  assert.match(markup,/<\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
+  assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('data-v1-form="chat"'));
+  assert.ok(markup.indexOf('data-v1-form="chat"')<markup.indexOf('data-v1="choice"'));
   assert.match(markup,/class="primary chat-return-button"/);
-  assert.ok(markup.indexOf('chat-message-actions')<markup.indexOf('小工具'));
+  assert.match(markup,/<\/aside><\/div><div class="controls chat-message-actions"[^\n]*<\/div>$/);
   assert.match(markup,/>小工具<\/h2>[\s\S]*?<\/section><button type="button" class="chat-reminder-link"[^>]*>查看主动提醒<\/button>/);
   assert.match(markup,/data-target="focus">专注计时<\/button>/);
   ui.click('open','return');
   assert.equal(x.v.active.id,'return');
   assert.equal(x.v.active.stage,'recovery');
+  assert.equal(chat.scrollTop,420);
+  assert.equal(chat.revealed,true);
 });
 test('microphone honors the browser permission state for each user-initiated recording',async()=>{
   const x=start('pm'), permission={state:'denied'}, feedback={};
