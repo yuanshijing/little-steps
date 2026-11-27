@@ -72,7 +72,7 @@ button:focus-visible { outline-color: #9a78df; }
 .bubble-speaker { display: block; font-size: 11px; font-weight: 800; color: #584779; margin-bottom: 3px; }
 .chat-usage { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .v1-card .bubble { line-height: 1.65; padding: 12px 15px; }
-.chat-choices { display: grid; flex: none; gap: 9px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #f4f0ff; }
+.chat-choices { display: grid; gap: 9px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #f4f0ff; }
 .chat-choices p { margin: 0; overflow-wrap: anywhere; }
 .chat-choices summary { cursor: pointer; }
 .chatbox > .review-prompt { margin: 0; }

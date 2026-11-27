@@ -149,6 +149,7 @@
         ${reviewPrompts.map(([key,row])=>`<div class="review-prompt"><strong>${row.kind==='daily'?'睡前复盘':'每周复盘'}</strong>
         <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview',row.kind==='daily'?'开始简短复盘':'开始每周复盘',key,true) : ''}
         ${row.pending ? btn('dismissReview',row.kind==='daily'?'今晚跳过':'稍后再看',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
+        </div>
         ${a ? `<section class="chat-choices" aria-label="${esc(V.title(v,a.id))}的对话操作"><p><b>${esc(V.title(v,a.id))}</b> <span class="subtle">${esc(due)}</span></p>
         ${controls ? (a.stage==='sustain'
           ? `<details><summary>确认专注进展</summary><div class="controls">${controls}</div></details>`
@@ -160,7 +161,6 @@
           ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
           ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>
         ${a.id==='sleep' ? btn('tab','查看每日复盘','review') : ''}</section>` : ''}
-        </div>
         <form data-v1-form="chat"><label>${writingReview?'填写本次复盘反馈':'和小星聊聊'}<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
         <div class="controls"><button type="submit" class="primary" ${!writingReview&&(!modelEnabled||modelSending)?'disabled':''}>发送</button>${voiceButton('v1-input')}</div></form>
         <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选状态。'}</p>
@@ -958,7 +958,7 @@
           }
           return toast(added?'已提取，可以继续修改':'没有新增重点，可检查现有项或移除后再提取');
         }
-        const inChat = b.closest?.('#v1-chat');
+        const inChat = b.closest?.('#v1-chat, .chat-choices');
         paint();
         if(inChat){
           const chat=document.getElementById('v1-chat');
