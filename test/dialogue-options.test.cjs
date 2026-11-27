@@ -450,15 +450,26 @@ test('memory uses examples and accepts manual entries without a source classific
   assert.equal(Object.hasOwn(x.v.memory.at(-1),'source'),false);
   assert.deepEqual(V.modelContext(x.state,'').memories,[{text:'原有记忆'},{text:'一次给我一步'}]);
 });
-test('composer follows the message log and the bottom return action reveals the new message',()=>{
+test('action choices stay inside the message log and the composer follows it',()=>{
   const chat={scrollHeight:420,scrollIntoView(){this.revealed=true;}};
   const x=start('pm'),ui=mount(x.state,undefined,false,{'v1-chat':chat});
+  const today=P.dateKey();
+  x.v.reviewPrompts={['daily/'+today]:{day:today,kind:'daily',pending:true}};
+  x.v.queue=[{id:'dinner',day:today}];
+  V.record(x.v,today,'dinner').notifiedAt=1;
   const markup=ui.markup();
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
   assert.match(markup,/<\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
   assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('data-v1-form="chat"'));
-  assert.ok(markup.indexOf('data-v1-form="chat"')<markup.indexOf('data-v1="choice"'));
+  const log=markup.slice(markup.indexOf('id="v1-chat"'),markup.indexOf('data-v1-form="chat"'));
+  assert.match(log,/class="bubble ai"[\s\S]*class="chat-choices"[\s\S]*data-v1="choice"/);
+  assert.match(log,/处理这条提醒/);
+  assert.match(log,/开始简短复盘/);
+  assert.doesNotMatch(markup.slice(markup.indexOf('data-v1-form="chat"')),/data-v1="choice"/);
+  ui.dispatch('click',{target:{closest:()=>({dataset:{v1:'choice',value:x.v.active.revision+'/ready'},closest:()=>chat})}});
+  assert.equal(x.v.active.stage,'begin');
+  assert.equal(chat.scrollTop,420);
   assert.match(markup,/class="primary chat-return-button"/);
   assert.match(markup,/<\/aside><\/div><div class="controls chat-message-actions"[^\n]*<\/div>$/);
   assert.match(markup,/>小工具<\/h2>[\s\S]*?<\/section><button type="button" class="chat-reminder-link"[^>]*>查看主动提醒<\/button>/);
