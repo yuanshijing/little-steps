@@ -245,3 +245,4 @@ button:focus-visible { outline-color: #9a78df; }
   button { transition: none; }
   .reward-sparks { display: none; }
 }
+.chat-message-actions { margin-top: 10px; }

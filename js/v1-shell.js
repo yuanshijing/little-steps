@@ -15,7 +15,7 @@
   const headings = {
     coach: '自定义任务教练', plan: '已有的自定义任务',
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
-    recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星对话',
+    recover: '回到正轨', focus: '专注', review: '睡前外化与次日计划', v1: '小星对话',
     v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '定时提醒',
     v1ideas: '灵感暂存',
   };
