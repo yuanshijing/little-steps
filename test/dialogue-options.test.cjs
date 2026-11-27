@@ -436,6 +436,16 @@ test('tomorrow plan time can trigger an in-page task reminder without adding an 
   assert.equal(notice.taskId,state.plans['2026-11-27'].items[0].id);
   assert.ok(!V.displayReminderIds(V.init(state)).includes(notice.taskId));
 });
+test('tomorrow plan starts empty and renders only its saved priorities',()=>{
+  const state=P.createState(),today=P.dateKey(),tomorrow=P.shiftDate(today,1);
+  const ui=mount(state,undefined,false);
+  assert.match(ui.markup('review'),/id="tomorrow-items"><\/div>/);
+  assert.match(ui.markup('review'),/data-v1="addTomorrow"[^>]*>＋ 添加明日重点/);
+  P.savePlan(state,tomorrow,[{title:'读一页',firstStep:'打开书',when:'09:00'}],'');
+  const saved=ui.markup('review');
+  assert.equal((saved.match(/<legend>重点 /g)??[]).length,1);
+  assert.match(saved,/value="读一页"/);
+});
 test('the whole-plan switch leaves individual task reminders active',()=>{
   const state=P.createState(now(21));
   state.tasks=[];

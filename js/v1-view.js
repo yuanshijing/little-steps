@@ -278,6 +278,29 @@
         void refreshUsage();
       }
     }
+    function tomorrowRow(index,row={}) {
+      return `<fieldset><legend>重点 ${index+1}</legend>
+        ${input('title'+index,'任务',row.title,'maxlength="80" data-plan-field="title"')}
+        ${input('when'+index,'计划时间',row.when ?? '09:00','type="time" data-plan-field="when"')}
+        ${input('step'+index,'第一步',row.firstStep,'maxlength="150" data-plan-field="step"')}
+        ${btn('clearTomorrow','移除重点 '+(index+1))}</fieldset>`;
+    }
+    function reindexTomorrow(form) {
+      const rows=[...form.querySelector('#tomorrow-items').children];
+      rows.forEach((row,index)=>{
+        row.querySelector('legend').textContent='重点 '+(index+1);
+        row.querySelector('[data-v1="clearTomorrow"]').textContent='移除重点 '+(index+1);
+        row.querySelectorAll('[data-plan-field]').forEach(field=>{field.name=field.dataset.planField+index;});
+      });
+      form.querySelector('[data-v1="addTomorrow"]').disabled=rows.length>=3;
+    }
+    function addTomorrow(form,row={}) {
+      const list=form.querySelector('#tomorrow-items');
+      if(list.children.length>=3)return false;
+      list.insertAdjacentHTML('beforeend',tomorrowRow(list.children.length,row));
+      reindexTomorrow(form);
+      return true;
+    }
     function reviewPage(v) {
       const row = v.reviews[day];
       const report = V.weekly(v, day);
@@ -309,10 +332,9 @@
         card('明日重点 · ' + tomorrow, `<form data-v1-form="tomorrow">
         <input type="hidden" name="planDay" value="${tomorrow}">
         <p class="subtle">最多填写三项，次日起床提醒会显示这些重点。网页运行时，「计划时间」可触发站内提醒，这些重点不会加入「定时提醒」清单或发送邮件。「第一步」是提醒里显示的具体起手动作。也可以在复盘里分行写「明天：任务」，再提取。</p>
-        ${btn('extract','从复盘提取明日重点')}${[0,1,2].map(i => `<fieldset><legend>重点 ${i+1}</legend>
-          ${input('title'+i,'任务',plan[i]?.title,'maxlength="80"')}${input('when'+i,'计划时间',plan[i]?.when ?? '09:00','type="time"')}
-          ${input('step'+i,'第一步',plan[i]?.firstStep,'maxlength="150"')}
-          ${btn('clearTomorrow','移除重点 '+(i+1),String(i))}</fieldset>`).join('')}
+        <div id="tomorrow-items">${plan.map((row,index)=>tomorrowRow(index,row)).join('')}</div>
+        <div class="controls"><button type="button" class="secondary small" data-v1="addTomorrow" ${plan.length>=3?'disabled':''}>＋ 添加明日重点</button>
+          ${btn('extract','从复盘提取明日重点')}</div>
           <div class="tomorrow-time">
             <label class="tomorrow-time-field">提示时间<input class="field" name="nextDayTime" type="time" value="${esc(state.settings.nextDayTime)}" required${remindPlan?'':' disabled'}></label>
             <p class="subtle" id="tomorrow-remind-help">勾选后，次日网页运行时会在指定时间额外提示整份重点。各项计划时间仍单独生效。</p>
@@ -805,18 +827,34 @@
           }
         }
         if (name === 'removeIdea') v.ideas=v.ideas.filter(row=>row.id!==value);
+        if (name === 'addTomorrow') {
+          if(addTomorrow(b.form))b.form.querySelector('#tomorrow-items').lastElementChild.querySelector('input').focus();
+          return;
+        }
         if (name === 'clearTomorrow') {
-          const fields=b.form.elements;
-          fields['title'+value].value='';
-          fields['when'+value].value='09:00';
-          fields['step'+value].value='';
+          const form=b.form;
+          b.closest('fieldset').remove();
+          reindexTomorrow(form);
           return;
         }
         if (name === 'extract') {
           const form=document.querySelector('[data-v1-form="tomorrow"]');
           const draft=C.draft(document.getElementById('v1-reflection')?.value || lastReview);
-          draft.items.forEach((row,i)=>{form.elements['title'+i].value ||= row.title; form.elements['step'+i].value ||= row.firstStep;});
-          return toast(draft.items.length?'已提取，可以继续修改':'可以分行写「明天：任务」');
+          if(!draft.items.length)return toast('可以分行写「明天：任务」');
+          let added=0;
+          for(const row of draft.items){
+            const inputs=[...form.querySelectorAll('[data-plan-field="title"]')];
+            if(inputs.some(field=>field.value.trim()===row.title))continue;
+            const empty=inputs.find(field=>!field.value.trim()&&!field.closest('fieldset').querySelector('[data-plan-field="step"]').value.trim());
+            if(empty){
+              const group=empty.closest('fieldset');
+              empty.value=row.title;
+              group.querySelector('[data-plan-field="step"]').value=row.firstStep;
+              if(P.timeOk(row.when))group.querySelector('[data-plan-field="when"]').value=row.when;
+            } else if(!addTomorrow(form,row))break;
+            added++;
+          }
+          return toast(added?'已提取，可以继续修改':'没有新增重点，可检查现有项或移除后再提取');
         }
         paint();
       } catch (error) { toast(error.message); }
@@ -873,7 +911,7 @@
             if(planDay!==P.shiftDate(P.dateKey(now),1))return toast('日期已变化，请刷新后再保存。');
             const remind=Boolean(data.nextDayRemind);
             if(remind && !P.timeOk(data.nextDayTime))return toast('请填写有效的提示时间');
-            const rows=[0,1,2].map(i=>({title:data['title'+i].trim(),when:data['when'+i],firstStep:data['step'+i].trim()}))
+            const rows=[0,1,2].map(i=>({title:P.clean(data['title'+i],80),when:data['when'+i],firstStep:P.clean(data['step'+i],150)}))
               .filter(row=>row.title||row.firstStep);
             const old=state.plans[planDay], previous=old?.items??[];
             if(!rows.length)P.clearPlan(state,planDay,now);
