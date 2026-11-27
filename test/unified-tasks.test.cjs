@@ -162,7 +162,7 @@ test('settings sync shares reminder schedule only and transports weekly weekday 
   assert.equal(target.tasks[0].firstStep,'');
 });
 
-test('my plan shows ordered actions, visible check-in results and no seeded example tasks',async()=>{
+test('my plan shows the selected date and reveals check-in choices on demand',async()=>{
   const state=P.createState(), today=P.dateKey();
   const listeners={},nav={},getState={};
   const fields={nav:{addEventListener:(type,fn)=>nav[type]=fn},view:{dataset:{}},pagetitle:{},
@@ -184,17 +184,29 @@ test('my plan shows ordered actions, visible check-in results and no seeded exam
   const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
   await click({act:'new-task'});
   assert.match(fields.view.innerHTML,/placeholder="例如：专注工作十分钟" value=""/);
+  await click({act:'cancel-edit'});
   const savedState=getState.read(), task=P.upsertTask(savedState,{title:'写一段笔记',day:today,when:'09:00'});
+  const tomorrow=P.shiftDate(today,1);
+  P.upsertTask(savedState,{title:'明天读一页',day:tomorrow,when:'10:00'});
+  P.upsertTask(savedState,{title:'离开床铺并洗漱',day:today,when:'08:00',category:'routine',repeat:'daily'});
   nav.click({target:{closest:()=>({dataset:{page:'plan'}})}});
   const html=fields.view.innerHTML;
-  const order=['edit','task-toggle','archive','check','help'].map(act=>html.indexOf('data-act="'+act+'"'));
+  const order=['edit','task-toggle','check','help','archive'].map(act=>html.indexOf('data-act="'+act+'"'));
   assert.ok(order.every((pos,index)=>pos>=0&&(!index||pos>order[index-1])));
   assert.match(html,/class="reminder-minus" data-act="archive"[^>]*aria-label="移出计划"[^>]*>−<\/button>/);
   assert.equal((html.match(/class="secondary small plan-checkin"/g)??[]).length,P.outcomes.length);
+  assert.match(html,/<details class="plan-checkin-menu"><summary class="secondary small">打卡<\/summary>/);
   assert.doesNotMatch(html,/选择结果|data-outcome/);
+  assert.doesNotMatch(html,/离开床铺并洗漱/);
+  assert.match(html,/计划日期[^\n]*[\s\S]*查看当天的计划和打卡记录/);
+  assert.ok(html.indexOf('写一段笔记')<html.indexOf('其他任务'));
+  assert.ok(html.indexOf('其他任务')<html.indexOf('明天读一页'));
   await click({act:'check',id:task.id,day:today,value:'completed'});
   assert.equal(savedState.instances[today+'/'+task.id].status,'completed');
   assert.match(fields.view.innerHTML,/data-value="completed" aria-pressed="true"/);
+  listeners.change({target:{id:'plan-date',value:tomorrow,matches:()=>false}});
+  assert.ok(fields.view.innerHTML.indexOf('明天读一页')<fields.view.innerHTML.indexOf('其他任务'));
+  assert.doesNotMatch(fields.view.innerHTML,/aria-pressed="true"/);
   const index=readFileSync('index.html','utf8');
   assert.match(index,/data-page="v1reminders"[^\n]*>主动提醒<\/span><\/button><button type="button" data-page="plan"/);
   assert.match(index,/id="pagetitle"[^\n]*id="plan-heading-note"[^\n]*「主动提醒」管理八项固定提醒/);

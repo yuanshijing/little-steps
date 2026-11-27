@@ -162,7 +162,7 @@
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
-          <button type="button" class="secondary small" data-act="page" data-target="focus">专注</button>
+          <button type="button" class="secondary small" data-act="page" data-target="focus">专注计时</button>
           ${btn('tab','查看主动提醒','schedule')}
           ${!a ? `<details><summary>更多操作</summary>${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</details>` : ''}</div>`) +
         '</aside></div>';
@@ -188,6 +188,12 @@
     }
     function settingsPage(v) {
       return card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
+        card('教练风格', `<div class="coach-style-options" role="radiogroup" aria-label="小星的教练风格">
+          ${coachStyles.map(([value,label,description])=>`<label class="coach-style-choice">
+            <input type="radio" name="coach-style" data-coach-style value="${value}" ${getState().settings.style===value?'checked':''}>
+            <span><strong>${label}</strong><small>${description}</small></span>
+          </label>`).join('')}</div>`) +
+        memorySettings(v) +
         card('提醒与奖励音效', `<form data-v1-form="settings">
         <label>总音量 <output id="v1-volume-value">${Math.round(volumeScale(v.settings.volume)*100)}%</output>
         <input class="field" type="range" name="volume" min="0" max="200" step="5" value="${Math.round(volumeScale(v.settings.volume)*100)}" aria-label="总音量"></label>
@@ -198,12 +204,6 @@
         <div class="controls">${btn('soundDemo','试听撒星星音效','normal')}</div>
         <details class="reminder-details"><summary>积分和进阶条件</summary><div class="cols">${Object.entries(levelName).map(([key,label]) => number(key,label,v.settings[key],1,1000)).join('')}</div></details>
         <button class="primary">保存音效和奖励设置</button></form>`) +
-        card('教练风格', `<div class="coach-style-options" role="radiogroup" aria-label="小星的教练风格">
-          ${coachStyles.map(([value,label,description])=>`<label class="coach-style-choice">
-            <input type="radio" name="coach-style" data-coach-style value="${value}" ${getState().settings.style===value?'checked':''}>
-            <span><strong>${label}</strong><small>${description}</small></span>
-          </label>`).join('')}</div>`) +
-        memorySettings(v) +
         ((trial || api || publicModel) ? card('模型连接', `<p>${esc(modelStatus)}</p>${usingTrial() ? '<p class="subtle">当前使用试用额度，也可以连接自己的密钥。</p>' : ''}
           ${publicModel?.status().enabled ? btn('disconnectModel','断开个人 DeepSeek') : api && modelEnabled ? btn('connection','测试已配置模型') : ''}
           <form method="post" data-v1-form="deepseek" autocomplete="off"><label>DeepSeek API Key
@@ -357,11 +357,11 @@
     }
     function memorySettings(v) {
       return card('长期记忆', `<label><input type="checkbox" id="v1-memory-on" ${v.settings.memory ? 'checked' : ''}> 启用长期记忆检索</label>
-        <p class="subtle">确认后才保存。你可以修改类别、文字或删除。仅在明确调用模型时提供相关条目。</p>
-        ${[...v.memory,{id:'',text:'',source:'用户自述',scene:'all'}].map(row=>`<form data-v1-form="memory" class="v1-memory-row">
-          <input type="hidden" name="id" value="${esc(row.id)}">${input('text',row.id?'编辑记忆':'添加记忆',row.text,'required maxlength="320"')}
-          <div class="cols"><label>来源<select class="field" name="source">${['已确认事实','用户自述','待验证假设'].map(x=>`<option ${row.source===x?'selected':''}>${x}</option>`).join('')}</select></label>
-          <label>相关环节<select class="field" name="scene"><option value="all">通用</option>${V.ids.map(id=>`<option value="${id}" ${row.scene===id?'selected':''}>${esc(V.data[id].title)}</option>`).join('')}</select></label></div>
+        <p class="subtle">确认添加后保存，可随时编辑或删除。开启检索后，小星会在使用 AI 时参考相关记忆。</p>
+        ${[...v.memory,{id:'',text:'',scene:'all'}].map(row=>`<form data-v1-form="memory" class="v1-memory-row">
+          <input type="hidden" name="id" value="${esc(row.id)}">${input('text',row.id?'编辑记忆':'添加记忆',row.text,'required maxlength="320"'+(row.id?'':' aria-describedby="memory-examples"'))}
+          ${row.id?'':'<p class="subtle" id="memory-examples">可以写你的习惯或偏好（如「卡住时请只给我一个小步骤」）、试过有效的方法（如「把手机放远后，我顺利开始了」），或想试试的做法（如「下次先把材料摆到桌上」）。</p>'}
+          <label>相关环节<select class="field" name="scene"><option value="all">通用</option>${V.ids.map(id=>`<option value="${id}" ${row.scene===id?'selected':''}>${esc(V.data[id].title)}</option>`).join('')}</select></label>
           <div class="controls"><button class="secondary">${row.id?'保存修改':'确认添加'}</button>${row.id?btn('deleteMemory','删除',row.id):''}</div></form>`).join('')}`);
     }
     function screen(section) {
@@ -800,7 +800,7 @@
         if (name === 'rememberCase') {
           const rec = v.events.find(row=>row.type==='detour' && row.at === Number(value));
           if (rec && v.settings.memory && !v.memory.some(row=>row.id==='case-'+value)) {
-            v.memory.push({id:'case-'+value,source:'已确认事实',scene:v.records[rec.key]?.id ?? 'all',
+            v.memory.push({id:'case-'+value,scene:v.records[rec.key]?.id ?? 'all',
               text:P.clean('当「'+rec.obstacle+'」发生时，使用「'+rec.strategy+'」后确认回归。',320)});
             toast('回归案例已存入记忆');
           }
@@ -904,9 +904,9 @@
           case 'idea': if(data.text.trim()){v.ideas.push({id:P.uid(),text:P.clean(data.text,500),at:Date.now()});V.message(v,'灵感已保存。我们可以回到原来那件事，先打开需要用的材料。');selectTab('chat');}break;
           case 'memory': {
             if (!data.text.trim()) break;
-            const previous=v.memory.find(r=>r.id===data.id);
-            const item={id:previous?.id??P.uid(),text:P.clean(data.text,320),source:data.source,scene:data.scene};
-            if(previous)Object.assign(previous,item);else v.memory.push(item);
+            const index=v.memory.findIndex(r=>r.id===data.id);
+            const item={id:v.memory[index]?.id??P.uid(),text:P.clean(data.text,320),scene:data.scene};
+            if(index<0)v.memory.push(item);else v.memory[index]=item;
             break;
           }
         }

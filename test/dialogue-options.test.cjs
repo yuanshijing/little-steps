@@ -358,6 +358,8 @@ test('voice button is icon-only and starts without pre-focusing a field',()=>{
 test('coach styles are visible and task controls are on their own pages',()=>{
   const x=start('pm'),ui=mount(x.state,undefined,false);
   const settings=ui.markup('settings');
+  const order=['账号与设置同步','教练风格','长期记忆','提醒与奖励音效'].map(label=>settings.indexOf('>'+label+'</h2>'));
+  assert.ok(order.every((position,index)=>position>=0&&(!index||position>order[index-1])));
   assert.equal((settings.match(/data-coach-style/g)??[]).length,3);
   assert.doesNotMatch(settings,/管理已有的自定义任务|明日重点默认提示时间|昵称/);
   ui.dispatch('change',{target:{matches:selector=>selector==='[data-coach-style]',checked:true,value:'gentle'}});
@@ -375,6 +377,20 @@ test('coach styles are visible and task controls are on their own pages',()=>{
   assert.ok(settings.indexOf('DeepSeek API Key')>=0);
   assert.ok(settings.indexOf('DeepSeek API Key')<settings.indexOf('本地数据'));
 });
+test('memory uses examples and accepts manual entries without a source classification',()=>{
+  const x=start('pm');
+  x.v.memory.push({id:'older',scene:'all',source:'已确认事实',text:'原有记忆'});
+  const ui=mount(x.state,undefined,false),settings=ui.markup('settings');
+  assert.match(settings,/添加记忆[^\n]*aria-describedby="memory-examples"/);
+  assert.match(settings,/class="subtle" id="memory-examples"[^\n]*习惯或偏好[^\n]*试过有效的方法[^\n]*想试试的做法/);
+  assert.doesNotMatch(settings,/name="source"|待验证假设|已确认事实/);
+  assert.match(settings,/原有记忆/);
+  ui.dispatch('submit',{target:{dataset:{v1Form:'memory'},values:{id:'',text:'一次给我一步',scene:'pm'}},preventDefault(){}});
+  assert.equal(x.v.memory.at(-1).text,'一次给我一步');
+  assert.equal(x.v.memory.at(-1).scene,'pm');
+  assert.equal(Object.hasOwn(x.v.memory.at(-1),'source'),false);
+  assert.deepEqual(V.modelContext(x.state,'').memories,[{text:'原有记忆'},{text:'一次给我一步'}]);
+});
 test('return action sits below chat messages and focus has a short label',()=>{
   const x=start('pm'),ui=mount(x.state,undefined,false);
   const markup=ui.markup();
@@ -382,7 +398,7 @@ test('return action sits below chat messages and focus has a short label',()=>{
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
   assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('chat-message-actions'));
   assert.ok(markup.indexOf('chat-message-actions')<markup.indexOf('对话工具'));
-  assert.match(markup,/data-target="focus">专注<\/button>/);
+  assert.match(markup,/data-target="focus">专注计时<\/button>/);
   ui.click('open','return');
   assert.equal(x.v.active.id,'return');
   assert.equal(x.v.active.stage,'recovery');

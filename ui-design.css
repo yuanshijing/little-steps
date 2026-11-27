@@ -110,11 +110,22 @@ button:focus-visible { outline-color: #9a78df; }
 #task-form details > summary { cursor: pointer; margin-bottom: 10px; }
 #task-form details > label { margin-top: 10px; }
 .plan-form-title { margin: 16px 0 0; font-size: 16px; }
-.plan-task-controls, .plan-checkins { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.plan-task-controls { gap: 7px; margin-top: 12px; }
-.plan-task-controls button { height: 36px; white-space: nowrap; }
+.plan-date-row, .plan-task-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.plan-date-row { margin-bottom: 12px; }
+.plan-date-row .field { width: auto; }
+.plan-other-tasks { margin-top: 16px; }
+.plan-task-controls { margin-top: 12px; }
+.plan-task-controls button, .plan-checkin-menu > summary { height: 36px; line-height: 1; white-space: nowrap; }
+.plan-checkin-menu { position: relative; }
+.plan-checkin-menu > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; }
+.plan-checkin-menu > summary::-webkit-details-marker { display: none; }
+.plan-checkin-menu > summary::after { content: ''; width: 5px; height: 5px; border-right: 1px solid; border-bottom: 1px solid; transform: rotate(45deg); }
+.plan-checkin-menu[open] > summary::after { transform: rotate(225deg); }
+.plan-checkins { position: absolute; inset-block-start: calc(100% + 6px); inset-inline-start: 0; z-index: 2;
+  display: grid; grid-template-columns: repeat(2, max-content); gap: 6px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 6px 24px #3c255424; }
 .plan-checkins .plan-checkin[aria-pressed="true"] { background: var(--lav2); border-color: var(--lav); }
-.plan-task-controls .plan-chat-action { margin-inline-start: auto; }
+.plan-task-controls .plan-chat-action, .plan-task-controls:not(:has(.plan-chat-action)) > .reminder-minus { margin-inline-start: auto; }
 .chat-message-actions { margin-top: 10px; }
 .coach-style-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: 10px; margin-top: 12px; }
 .v1-card label.coach-style-choice { display: flex; align-items: start; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }

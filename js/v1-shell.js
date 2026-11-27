@@ -75,12 +75,18 @@
     const V=window.PlanetV1, v=V.init(state);
     const editing=state.tasks.find(task=>task.id===editId && !task.archived);
     const t=editing ?? {title:'',day:P.dateKey(),when:'09:00',repeat:'once',priority:2,steps:[],reminderEnabled:true};
+    const tasks=state.tasks.filter(task=>!task.retiredExample &&
+      !(task.title==='离开床铺并洗漱' && task.category==='routine'));
     const candidates=[...V.ids.map(id=>({id,title:V.title(v,id)})),
-      ...state.tasks.filter(task=>!task.archived && task.id!==editing?.id)];
+      ...tasks.filter(task=>!task.archived && task.id!==editing?.id)];
     const selectTask=(name,label,value)=>'<label>'+label+' <select name="'+name+'" class="field">'+option('', '无', value)+
       candidates.map(task=>option(task.id,task.title,value)).join('')+'</select></label>';
-    const rows=state.tasks.filter(task=>!task.archived || P.occurs(task,selectedDay) ||
-      P.outcomes.includes(state.instances[selectedDay+'/'+task.id]?.status)).sort((a,b)=>a.when.localeCompare(b.when));
+    const rows=tasks.map(task=>({task,config:P.scheduleAt(task,selectedDay),scheduled:P.occurs(task,selectedDay),
+      item:state.instances[selectedDay+'/'+task.id]})).sort((a,b)=>a.config.when.localeCompare(b.config.when));
+    const appearsOnDate=({scheduled,item})=>scheduled || Boolean(item &&
+      (item.status!=='pending' || item.acknowledged || item.doneSteps?.length));
+    const daily=rows.filter(appearsOnDate);
+    const other=rows.filter(row=>!row.task.archived&&!appearsOnDate(row));
     const frequencies={once:'仅一次',daily:'每天',weekdays:'工作日',weekly:'每周'};
     const form=`<form id="task-form">
       <div class="cols">
@@ -100,30 +106,33 @@
       <label>拆解步骤（每行一步） <textarea class="field" name="steps" rows="3" maxlength="1850">${esc((t.steps??[]).join('\n'))}</textarea></label></details>
       <div class="controls"><button class="primary" type="submit">保存任务</button>${action('cancel-edit','取消')}</div>
     </form>`;
-    return `<section class="surface"><div class="controls">${action('new-task','＋ 新增任务','', 'primary')}</div>
-      ${editId?'<h2 class="plan-form-title">'+(editing?'编辑任务':'新增任务')+'</h2>'+form:''}</section>` +
-      card('任务与打卡', `<label for="plan-date">查看日期</label> <input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">`+
-        (rows.map(task=>{
-          const config=P.scheduleAt(task,selectedDay), scheduled=P.occurs(task,selectedDay);
-          const item=state.instances[selectedDay+'/'+task.id];
-          if(task.retiredExample && !item)return '';
+    const taskRow=({task,config,scheduled,item})=>{
           const data=taskData(task,{day:selectedDay}), status=item&&P.outcomes.includes(item.status)?P.STATUSES[item.status]:
             item?.status==='active'?'进行中':scheduled?'未记录':'当天无须执行';
-          const live=selectedDay===P.dateKey() && scheduled, canCheck=scheduled && selectedDay<=P.dateKey();
+          const live=!task.archived && scheduled && selectedDay===P.dateKey();
+          const canCheck=!task.archived && scheduled && selectedDay<=P.dateKey();
           return `<article class="task"><div class="task-body"><div class="task-name">${esc(item?.title??config.title)}</div>
             <div class="task-info">${esc(config.when)} · ${frequencies[config.repeat]} · ${status}${task.paused?' · 已暂停':''}${task.archived?' · 已移出':''}</div>
             ${task.firstStep?'<p class="subtle">第一步 '+esc(task.firstStep)+'</p>':''}
             ${live&&task.steps?.length ? '<ol>'+task.steps.map((step,i)=>`<li><label><input type="checkbox" data-step="${i}" ${data} ${item?.doneSteps?.includes(i)?'checked':''}> ${esc(step)}</label></li>`).join('')+'</ol>':''}
             <div class="plan-task-controls">
-              ${task.archived?'':action('edit','编辑',data)+action('task-toggle',task.paused?'恢复':'暂停',data)+
-                action('archive','−',data+' aria-label="移出计划" title="移出计划"','reminder-minus')}
-              ${canCheck?`<div class="plan-checkins" role="group" aria-label="打卡结果"><span class="subtle">打卡</span>
+              ${task.archived?'':action('edit','编辑',data)+action('task-toggle',task.paused?'恢复':'暂停',data)}
+              ${canCheck?`<details class="plan-checkin-menu"><summary class="secondary small">打卡</summary>
+                <div class="plan-checkins" role="group" aria-label="选择打卡结果">
                 ${P.outcomes.map(value=>action('check',P.STATUSES[value],data+' data-value="'+value+
-                  '" aria-pressed="'+(item?.status===value)+'"','secondary small plan-checkin')).join('')}</div>`:''}
+                  '" aria-pressed="'+(item?.status===value)+'"','secondary small plan-checkin')).join('')}</div></details>`:''}
               ${live&&!P.outcomes.includes(item?.status)?action('help','和小星聊聊',data,'secondary small plan-chat-action'):''}
+              ${task.archived?'':action('archive','−',data+' aria-label="移出计划" title="移出计划"','reminder-minus')}
             </div>
           </div></article>`;
-        }).join('')||'<p>还没有任务。可以从一件小事开始。</p>'));
+    };
+    return `<section class="surface"><div class="controls">${action('new-task','＋ 新增任务','', 'primary')}</div>
+      ${editId?'<h2 class="plan-form-title">'+(editing?'编辑任务':'新增任务')+'</h2>'+form:''}</section>` +
+      card('任务与打卡', `<div class="plan-date-row"><label for="plan-date">计划日期</label>
+        <input class="field" id="plan-date" type="date" value="${esc(selectedDay)}" aria-describedby="plan-date-help">
+        <small id="plan-date-help" class="subtle">选择日期，查看当天的计划和打卡记录。</small></div>
+        ${daily.map(taskRow).join('')||'<p>这天没有计划。</p>'}
+        ${other.length?`<details class="plan-other-tasks"><summary>其他任务</summary>${other.map(taskRow).join('')}</details>`:''}`);
   }
   function contextTask() {
     if (context) {
