@@ -333,7 +333,8 @@ test(page+' dictation uses the same microphone, fills the right field and never 
     stop(){this.stopped=true;}
     abort(){this.aborted=true;}
   }
-  const ui=mount(x.state,undefined,false,{[id]:field,[id+'-voice-feedback']:feedback,[id+'-voice-preview']:preview},Recognizer);
+  const fallback={hidden:true};
+  const ui=mount(x.state,undefined,false,{[id]:field,[id+'-voice-feedback']:feedback,[id+'-voice-preview']:preview,[id+'-keyboard-dictation']:fallback},Recognizer);
   const control=()=>ui.markup(page);
   assert.match(control(),/class="mic-icon" aria-hidden="true"/);
   assert.match(control(),new RegExp('aria-describedby="'+id+'-voice-feedback"'));
@@ -377,6 +378,14 @@ test(page+' dictation uses the same microphone, fills the right field and never 
   speech.onerror({error:'not-allowed'});
   speech.onend();
   assert.match(feedback.textContent,/网站权限里允许麦克风/);
+  assert.equal(fallback.hidden,false);
+  field.focused=false;
+  const previousStarts=starts;
+  ui.click('keyboardDictation',id);
+  assert.equal(field.focused,true);
+  assert.equal(starts,previousStarts);
+  assert.equal(field.value,'原有草稿 今天读了两页 还有一个灵感');
+  assert.match(feedback.textContent,/屏幕键盘上的麦克风/);
   assert.match(control(),new RegExp('data-value="'+id+'"\\s+aria-label="开始语音输入" aria-pressed="false"'));
   ui.click('voice',id);
   speech.onerror({error:'network'});
@@ -389,8 +398,20 @@ test(page+' dictation uses the same microphone, fills the right field and never 
   assert.equal(preview.textContent,'');
   pageSpeech.onresult({resultIndex:0,results:[[{transcript:'离开页面后的结果'}]]});
   assert.doesNotMatch(field.value,/离开页面/);
-  const unsupported=mount(x.state,undefined,false).markup(page);
-  assert.match(unsupported,/设备键盘听写/);
+  for(const [provider,navigator] of [
+    [undefined,undefined],
+    [Recognizer,{userAgent:'Mozilla iPhone'}],
+    [Recognizer,{userAgent:'Mozilla Android'}],
+    [Recognizer,{platform:'MacIntel',maxTouchPoints:5}],
+  ]){
+    const keyboardField={value:'手机草稿',focus(){this.focused=true;}};
+    const keyboard=mount(x.state,undefined,false,{[id]:keyboardField},provider,navigator);
+    assert.match(keyboard.markup(page),new RegExp('data-v1="keyboardDictation"\\s+data-value="'+id+'"\\s*>设备键盘听写'));
+    keyboard.click('keyboardDictation',id);
+    assert.equal(keyboardField.focused,true);
+    assert.equal(keyboardField.value,'手机草稿');
+    assert.equal(starts,previousStarts+2);
+  }
 });
 }
 test('coach styles are visible and task controls are on their own pages',()=>{

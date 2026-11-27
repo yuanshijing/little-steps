@@ -33,6 +33,11 @@
     let modelSending = false;
     let speechSession=null;
     const speechFeedback=new Map();
+    const keyboardFallbacks=new Set();
+    const device=window.navigator;
+    const mobileDictation=device?.userAgentData?.mobile===true ||
+      /Android|iPhone|iPad|iPod/i.test(device?.userAgent??'') ||
+      (device?.platform==='MacIntel' && device.maxTouchPoints>1);
     let micPermission;
     if(voice) {
       window.navigator?.permissions?.query({name:'microphone'}).then(permission=>{
@@ -569,13 +574,26 @@
       toast('奖励设置已保存');
     }
     function voiceButton(id) {
-      if(!voice)return '<span class="subtle">此浏览器可使用设备键盘听写。</span>';
       const active=speechSession?.id===id;
       const label=active?'结束语音输入':'开始语音输入';
-      return `<button type="button" class="secondary voice-button" data-v1="voice" data-value="${id}"
-        aria-label="${label}" aria-pressed="${active}" aria-describedby="${id}-voice-feedback" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>
+      const webMic=voice ? `<button type="button" class="secondary voice-button" data-v1="voice" data-value="${id}"
+        aria-label="${label}" aria-pressed="${active}" aria-describedby="${id}-voice-feedback" title="${label}"><span class="mic-icon" aria-hidden="true"></span></button>` : '';
+      return `${webMic}<button type="button" class="secondary small" id="${id}-keyboard-dictation" data-v1="keyboardDictation"
+        data-value="${id}" ${voice && !mobileDictation && !keyboardFallbacks.has(id)?'hidden':''}>设备键盘听写</button>
         <span class="subtle voice-feedback" id="${id}-voice-feedback" role="status">${esc(speechFeedback.get(id)??'')}</span>
         <span class="subtle voice-preview" id="${id}-voice-preview">${esc(active?speechSession.preview:'')}</span>`;
+    }
+    function showKeyboardFallback(id) {
+      keyboardFallbacks.add(id);
+      const button=document.getElementById(id+'-keyboard-dictation');
+      if(button) button.hidden=false;
+    }
+    function keyboardDictation(id) {
+      const field=document.getElementById(id);
+      if(!field)return;
+      cancelSpeech();
+      field.focus();
+      updateSpeech(id,'请点屏幕键盘上的麦克风开始听写。文字会填在这里，检查后再发送或保存。');
     }
     function updateSpeech(id,text) {
       speechFeedback.set(id,text);
@@ -617,10 +635,17 @@
         return;
       }
       if(micPermission?.state==='denied'){
-        updateSpeech(id,micBlocked);
+        showKeyboardFallback(id);
+        updateSpeech(id,micBlocked+' 也可以用设备键盘听写。');
         return;
       }
-      const recognizer=new voice();
+      let recognizer;
+      try { recognizer=new voice(); }
+      catch {
+        showKeyboardFallback(id);
+        updateSpeech(id,'网页麦克风无法启动，可以改用设备键盘听写。');
+        return;
+      }
       const session={id,recognizer,listening:false,stopping:false,received:false,preview:'',finalized:new Set()};
       speechSession=session;
       const finish=text=>{
@@ -660,22 +685,28 @@
         session.preview=pending.join(' ');
         showSpeechPreview(id,session.preview);
       };
-      recognizer.onerror=event=>finish({
+      const offerKeyboard=message=>{
+        if(speechSession!==session)return;
+        showKeyboardFallback(id);
+        finish(message+' 也可以用设备键盘听写。');
+      };
+      recognizer.onerror=event=>offerKeyboard({
         'not-allowed':micBlocked,
         'service-not-allowed':'当前浏览器无法使用语音识别服务。',
         'audio-capture':'没有检测到可用的麦克风。',
         'no-speech':'没有听清，请再点一次麦克风。',
-        network:'语音识别服务暂时连不上，可以先打字。',
+        network:'语音识别服务暂时连不上。',
       }[event.error]??'语音识别未完成，可以再试一次。');
       recognizer.onend=()=>{
         if(speechSession!==session)return;
         appendTranscript(session.preview);
-        if(session.received)document.getElementById(id)?.focus({preventScroll:true});
-        finish(session.received?'已填入输入框，可以检查后再保存或发送。':'没有收到语音，请再试一次。');
+        if(!session.received)return offerKeyboard('没有收到语音，请再试一次。');
+        document.getElementById(id)?.focus({preventScroll:true});
+        finish('已填入输入框，可以检查后再保存或发送。');
       };
       updateSpeech(id,'正在启动麦克风…');
       try { recognizer.start(); }
-      catch { finish('无法启动麦克风，请检查浏览器权限。'); }
+      catch { offerKeyboard('无法启动麦克风，请检查浏览器权限。'); }
     }
     function usageLabel() {
       if (!modelEnabled) return '今日累计用量 · 未连接大模型';
@@ -828,6 +859,7 @@
           return;
         }
         if (name === 'voice') return recognize(value);
+        if (name === 'keyboardDictation') return keyboardDictation(value);
         if (name === 'connection') return void checkConnection(true);
         if (name === 'soundDemo') {
           const reminder = value === 'reminder';
