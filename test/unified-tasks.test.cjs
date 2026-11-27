@@ -1,5 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const {readFileSync}=require('node:fs');
+const {runInNewContext}=require('node:vm');
 const P=require('../js/model');
 const V=require('../js/v1');
 const D=require('../js/dashboard');
@@ -158,4 +160,42 @@ test('settings sync shares reminder schedule only and transports weekly weekday 
   assert.equal(Sync.apply(target,profile),true);
   assert.equal(target.tasks[0].repeat,'weekly');
   assert.equal(target.tasks[0].firstStep,'');
+});
+
+test('my plan shows ordered actions, visible check-in results and no seeded example tasks',async()=>{
+  const state=P.createState(), today=P.dateKey();
+  const listeners={},nav={},getState={};
+  const fields={nav:{addEventListener:(type,fn)=>nav[type]=fn},view:{dataset:{}},pagetitle:{},
+    todaylabel:{},starcount:{},'plan-heading-note':{},toast:{style:{}},
+    'task-form':{elements:{title:{focus(){}}}}};
+  const storage=new Map();
+  P.write({setItem:(key,value)=>storage.set(key,value)},state);
+  const window={Planet:P,PlanetV1:V,PlanetScheduler:S,
+    PlanetV1View:{mount(options){getState.read=options.state;return {screen:()=>'',clock(){},tick(){},playCompletionSound(){}};}},
+    addEventListener(){},scrollTo(){}};
+  const document={getElementById:id=>fields[id]??null,querySelectorAll:()=>[],
+    addEventListener:(type,fn)=>listeners[type]=fn};
+  runInNewContext(readFileSync('js/v1-shell.js','utf8'),{window,document,setInterval(){},setTimeout(){},clearTimeout(){},
+    localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)}});
+  nav.click({target:{closest:()=>({dataset:{page:'plan'}})}});
+  assert.equal(fields.pagetitle.textContent,'我的计划');
+  assert.equal(fields['plan-heading-note'].hidden,false);
+  assert.doesNotMatch(fields.view.innerHTML,/离开床铺|整理房间|专注工作十分钟/);
+  const click=dataset=>listeners.click({target:{closest:()=>({dataset})}});
+  await click({act:'new-task'});
+  assert.match(fields.view.innerHTML,/placeholder="例如：专注工作十分钟" value=""/);
+  const savedState=getState.read(), task=P.upsertTask(savedState,{title:'写一段笔记',day:today,when:'09:00'});
+  nav.click({target:{closest:()=>({dataset:{page:'plan'}})}});
+  const html=fields.view.innerHTML;
+  const order=['edit','task-toggle','archive','check','help'].map(act=>html.indexOf('data-act="'+act+'"'));
+  assert.ok(order.every((pos,index)=>pos>=0&&(!index||pos>order[index-1])));
+  assert.match(html,/class="reminder-minus" data-act="archive"[^>]*aria-label="移出计划"[^>]*>−<\/button>/);
+  assert.equal((html.match(/class="secondary small plan-checkin"/g)??[]).length,P.outcomes.length);
+  assert.doesNotMatch(html,/选择结果|data-outcome/);
+  await click({act:'check',id:task.id,day:today,value:'completed'});
+  assert.equal(savedState.instances[today+'/'+task.id].status,'completed');
+  assert.match(fields.view.innerHTML,/data-value="completed" aria-pressed="true"/);
+  const index=readFileSync('index.html','utf8');
+  assert.match(index,/data-page="v1reminders"[^\n]*>主动提醒<\/span><\/button><button type="button" data-page="plan"/);
+  assert.match(index,/id="pagetitle"[^\n]*id="plan-heading-note"[^\n]*「主动提醒」管理八项固定提醒/);
 });

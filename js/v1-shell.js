@@ -13,10 +13,10 @@
   const card = (title, body) => `<section class="surface"><h2 class="section-title">${esc(title)}</h2>${body}</section>`;
   const notice = text => `<p class="notice">${esc(text)}</p>`;
   const headings = {
-    plan: '我的任务',
+    plan: '我的计划',
     growth: '看看行动留下的线索', settings: '你的节奏，你决定',
-    recover: '回到正轨', focus: '启动与专注计时', review: '睡前外化与次日计划', v1: '小星对话',
-    v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '定时提醒',
+    recover: '回到正轨', focus: '专注', review: '睡前外化与次日计划', v1: '小星对话',
+    v1review: '日周复盘', v1stars: '星空收藏', v1settings: '设置', v1library: '晨间语录', v1reminders: '主动提醒',
     v1ideas: '灵感暂存',
   };
   const home = byId('view');
@@ -55,6 +55,7 @@
     byId('starcount').textContent = state.stars;
     byId('todaylabel').textContent = new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
     byId('pagetitle').textContent = headings[page];
+    byId('plan-heading-note').hidden = page !== 'plan';
     const navPage = ({focus:'v1', recover:'v1', growth:'v1review', review:'v1review',
       v1ideas:'v1', settings:'v1settings'})[page] ?? page;
     document.querySelectorAll('#nav button').forEach(button => {
@@ -83,7 +84,7 @@
     const frequencies={once:'仅一次',daily:'每天',weekdays:'工作日',weekly:'每周'};
     const form=`<form id="task-form">
       <div class="cols">
-        <label>任务名称 <input class="field" name="title" required maxlength="80" value="${esc(t.title)}"></label>
+        <label>任务名称 <input class="field" name="title" required maxlength="80" placeholder="例如：专注工作十分钟" value="${esc(t.title)}"></label>
         <label>计划日期 <input class="field" type="date" name="day" required value="${esc(t.day)}"></label>
         <label>计划时间 <input class="field" type="time" name="when" required value="${esc(t.when)}"></label>
         <label>重复频率 <select class="field" name="repeat">${Object.entries(frequencies).map(([key,label])=>option(key,label,t.repeat)).join('')}</select></label>
@@ -99,8 +100,8 @@
       <label>拆解步骤（每行一步） <textarea class="field" name="steps" rows="3" maxlength="1850">${esc((t.steps??[]).join('\n'))}</textarea></label></details>
       <div class="controls"><button class="primary" type="submit">保存任务</button>${action('cancel-edit','取消')}</div>
     </form>`;
-    return card('我的任务',`<div class="controls">${action('new-task','＋ 新增任务','', 'primary')}</div>
-      ${editId?'<h3>'+(editing?'编辑任务':'新增任务')+'</h3>'+form:''}`) +
+    return `<section class="surface"><div class="controls">${action('new-task','＋ 新增任务','', 'primary')}</div>
+      ${editId?'<h2 class="plan-form-title">'+(editing?'编辑任务':'新增任务')+'</h2>'+form:''}</section>` +
       card('任务与打卡', `<label for="plan-date">查看日期</label> <input class="field" id="plan-date" type="date" value="${esc(selectedDay)}">`+
         (rows.map(task=>{
           const config=P.scheduleAt(task,selectedDay), scheduled=P.occurs(task,selectedDay);
@@ -113,10 +114,14 @@
             <div class="task-info">${esc(config.when)} · ${frequencies[config.repeat]} · ${status}${task.paused?' · 已暂停':''}${task.archived?' · 已移出':''}</div>
             ${task.firstStep?'<p class="subtle">第一步 '+esc(task.firstStep)+'</p>':''}
             ${live&&task.steps?.length ? '<ol>'+task.steps.map((step,i)=>`<li><label><input type="checkbox" data-step="${i}" ${data} ${item?.doneSteps?.includes(i)?'checked':''}> ${esc(step)}</label></li>`).join('')+'</ol>':''}
-            <div class="controls">${live&&!P.outcomes.includes(item?.status)?action('help','和小星聊聊',data):''}
-            ${canCheck?`<label>打卡 <select class="field" data-outcome ${data}>${option('','选择结果','')}
-              ${P.outcomes.map(value=>option(value,P.STATUSES[value],item?.status)).join('')}</select></label>`:''}
-            ${task.archived?'':action('edit','编辑',data)+action('task-toggle',task.paused?'恢复':'暂停',data)+action('archive','移出计划',data)}</div>
+            <div class="plan-task-controls">
+              ${task.archived?'':action('edit','编辑',data)+action('task-toggle',task.paused?'恢复':'暂停',data)+
+                action('archive','−',data+' aria-label="移出计划" title="移出计划"','reminder-minus')}
+              ${canCheck?`<div class="plan-checkins" role="group" aria-label="打卡结果"><span class="subtle">打卡</span>
+                ${P.outcomes.map(value=>action('check',P.STATUSES[value],data+' data-value="'+value+
+                  '" aria-pressed="'+(item?.status===value)+'"','secondary small plan-checkin')).join('')}</div>`:''}
+              ${live&&!P.outcomes.includes(item?.status)?action('help','和小星聊聊',data,'secondary small plan-chat-action'):''}
+            </div>
           </div></article>`;
         }).join('')||'<p>还没有任务。可以从一件小事开始。</p>'));
   }
@@ -423,7 +428,6 @@
     const task = state.tasks.find(row => row.id === el.dataset.id && !row.archived);
     if (!task) return;
     try {
-      if (Object.hasOwn(el.dataset, 'outcome') && el.value) markTask(task, el.dataset.day, 'check', el.value);
       if (Object.hasOwn(el.dataset, 'step')) {
         const item = P.openInstance(state, task, el.dataset.day);
         const step = Number(el.dataset.step);

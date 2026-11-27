@@ -486,7 +486,7 @@
     const [action,target]=choice.next.split(':');
     const custom=linkedTask(state,a.id);
     if(custom && action==='@customDoing' && P.blocked(state,custom,a.day)){
-      message(v,'这项任务设为必须先完成前置任务。可在「我的任务」调整条件。');
+      message(v,'这项任务设为必须先完成前置任务。可在「我的计划」调整条件。');
       return {award:null};
     }
     const reply=choice.reply.replace('{task}',()=>task?.title || '当前任务')

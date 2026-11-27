@@ -20,6 +20,8 @@ button:focus-visible { outline-color: #9a78df; }
 .nav-icon { display: grid; place-items: center; width: 18px; font-size: 19px; font-weight: 500; }
 .top { margin: 7px 0 19px; }
 .title { font-size: clamp(24px, 3.2vw, 34px); }
+.page-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
+.plan-heading-note { margin: 0; }
 .eyebrow { color: #70617e; letter-spacing: .04em; }
 .stars { display: flex; align-items: center; gap: 6px; border: 1px solid #efe6d1; background: #fff9ed; color: #67431d; padding: 9px 13px; font-size: 13px; }
 .surface { background: #fff; border-radius: 19px; padding: 24px; line-height: 1.65; }
@@ -107,6 +109,13 @@ button:focus-visible { outline-color: #9a78df; }
 #task-form .field { margin-top: 4px; }
 #task-form details > summary { cursor: pointer; margin-bottom: 10px; }
 #task-form details > label { margin-top: 10px; }
+.plan-form-title { margin: 16px 0 0; font-size: 16px; }
+.plan-task-controls, .plan-checkins { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.plan-task-controls { gap: 7px; margin-top: 12px; }
+.plan-task-controls button { height: 36px; white-space: nowrap; }
+.plan-checkins .plan-checkin[aria-pressed="true"] { background: var(--lav2); border-color: var(--lav); }
+.plan-task-controls .plan-chat-action { margin-inline-start: auto; }
+.chat-message-actions { margin-top: 10px; }
 .coach-style-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: 10px; margin-top: 12px; }
 .v1-card label.coach-style-choice { display: flex; align-items: start; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .coach-style-choice:has(input:checked) { background: var(--lav2); border-color: #ac9ce6; }
@@ -122,8 +131,6 @@ button:focus-visible { outline-color: #9a78df; }
 @media (max-width: 720px) {
   .weekly-detail-grid { grid-template-columns: minmax(0,1fr); }
 }
-.reminder-plan-link { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-.reminder-plan-link p { margin: 7px 0 0; }
 .weekly-detail-card h3 { margin: 0 0 9px; font-size: 15px; line-height: 1.5; }
 .weekly-detail-card p { margin: 0; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
 .weekly-case { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 7px 0; }

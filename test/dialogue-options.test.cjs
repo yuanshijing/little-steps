@@ -363,8 +363,9 @@ test('coach styles are visible and task controls are on their own pages',()=>{
   ui.dispatch('change',{target:{matches:selector=>selector==='[data-coach-style]',checked:true,value:'gentle'}});
   assert.equal(x.state.settings.style,'gentle');
   assert.match(ui.markup('settings'),/data-coach-style value="gentle" checked/);
-  assert.equal((ui.markup('schedule').match(/data-target="plan"/g)??[]).length,1);
-  assert.match(ui.markup('schedule'),/打开我的任务/);
+  assert.doesNotMatch(ui.markup('schedule'),/data-target="plan"/);
+  assert.match(ui.markup('schedule'),/主动提醒/);
+  assert.doesNotMatch(ui.markup('schedule'),/打开我的任务|打开我的计划/);
   assert.match(ui.markup('review'),/name="nextDayRemind" data-tomorrow-remind checked/);
   assert.match(ui.markup('review'),/保存明日重点/);
   assert.doesNotMatch(ui.markup('review'),/保存时间/);
@@ -373,6 +374,18 @@ test('coach styles are visible and task controls are on their own pages',()=>{
   assert.doesNotMatch(ui.markup('review'),/查看长期记忆/);
   assert.ok(settings.indexOf('DeepSeek API Key')>=0);
   assert.ok(settings.indexOf('DeepSeek API Key')<settings.indexOf('本地数据'));
+});
+test('return action sits below chat messages and focus has a short label',()=>{
+  const x=start('pm'),ui=mount(x.state,undefined,false);
+  const markup=ui.markup();
+  assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
+  assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
+  assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('chat-message-actions'));
+  assert.ok(markup.indexOf('chat-message-actions')<markup.indexOf('对话工具'));
+  assert.match(markup,/data-target="focus">专注<\/button>/);
+  ui.click('open','return');
+  assert.equal(x.v.active.id,'return');
+  assert.equal(x.v.active.stage,'recovery');
 });
 test('microphone honors the browser permission state for each user-initiated recording',async()=>{
   const x=start('pm'), permission={state:'denied'}, feedback={};

@@ -139,6 +139,7 @@
         <p id="chat-usage" class="chat-usage">${usageLabel()}</p>
         <div id="v1-chat" class="chatbox" aria-live="polite">${v.messages.map(row =>
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}</div>
+        <div class="controls chat-message-actions">${btn('open','回到正轨','return')}</div>
         ${v.queue.filter(row=>row.day===date() && v.records[row.day+'/'+row.id]?.notifiedAt != null).map(row=>
           `<div class="review-prompt"><strong>${esc(V.title(v,row.id))} · 待处理</strong>
           ${btn('open','处理这条提醒',row.id)}</div>`).join('')}
@@ -160,9 +161,9 @@
         <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选上方的状态。'}</p>
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
-        `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
-          <button type="button" class="secondary small" data-act="page" data-target="focus">启动与专注计时</button>
-          ${btn('tab','查看定时提醒','schedule')}
+        `</div><aside>` + card('对话工具', `<div class="section-links">${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
+          <button type="button" class="secondary small" data-act="page" data-target="focus">专注</button>
+          ${btn('tab','查看主动提醒','schedule')}
           ${!a ? `<details><summary>更多操作</summary>${paused ? btn('resume','恢复监督') : btn('pause','暂停监督一小时')}</details>` : ''}</div>`) +
         '</aside></div>';
     }
@@ -175,7 +176,7 @@
     function schedulePage(v) {
       const state = getState();
       const removed = V.ids.filter(id => v.settings.times[id].removed);
-      return card('定时提醒', `<form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
+      return card('主动提醒', `<form data-v1-form="schedule">${window.PlanetDashboard.reminders(state)}
         ${removed.length ? `<details class="reminder-details"><summary>已移除的提醒</summary>${removed.map(id=>`<label><input type="checkbox" name="restore_${esc(id)}"> 恢复${esc(V.title(v,id))}</label>`).join('')}</details>` : ''}
         <details class="reminder-details"><summary>跟进间隔和学习收尾时间</summary>
         <div class="cols">${Object.entries(values).map(([key,label]) => number('interval_'+key,label+'（分钟）',v.settings.intervals[key])).join('')}
@@ -183,11 +184,7 @@
         <details class="reminder-details"><summary>每周复盘提醒</summary><div class="cols"><label>星期<select class="field" name="weekDay">${['日','一','二','三','四','五','六'].map((label,i) =>
           `<option value="${i}" ${i === v.settings.weekDay ? 'selected' : ''}>星期${label}</option>`).join('')}</select></label>${when('weekTime','时间',v.settings.weekTime)}</div></details>
         <label><input type="checkbox" name="remind" ${state.settings.remind ? 'checked' : ''}> 启用自动提醒</label>
-        <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>
-        <div class="reminder-plan-link">
-          <p class="subtle">在「我的任务」设置自定义任务的计划日期、重复频率和提醒。</p>
-          <button type="button" class="secondary small" data-act="page" data-target="plan">打开我的任务</button>
-        </div>`);
+        <div class="controls"><button class="primary">保存提醒</button>${btn('notify','授权浏览器通知')}</div></form>`);
     }
     function settingsPage(v) {
       return card('账号与设置同步',`<div id="settings-sync-panel">${syncPanel()}</div>`) +
