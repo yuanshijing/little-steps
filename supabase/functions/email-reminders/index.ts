@@ -43,7 +43,12 @@ Deno.serve(async req=>{
    for(const job of jobs){
     let delivered=false;
     try{
-     const info=await transport.sendMail({from:{name:'小步星球',address:sender},to:job.recipient,subject:job.test?'小步星球 · 邮件提醒测试':'小步星球 · 你有一条定时提醒',text:(job.test?'这是一封邮件提醒测试。':reminderMessage(job.reminder_id,job.reminder_title))+'\n\n打开小步星球与小星继续。\n'+site,disableFileAccess:true,disableUrlAccess:true});
+     const message=job.test?'这是一封邮件提醒测试。':reminderMessage(job.reminder_id,job.reminder_title);
+     const subject=job.test?'小步星球 · 邮件提醒测试':message.replace(/[\r\n\u2028\u2029]+/g,' ');
+     const info=await transport.sendMail({
+      from:{name:'小步星球',address:sender},to:job.recipient,subject,
+      text:message+'\n\n打开小步星球与小星继续。\n'+site,disableFileAccess:true,disableUrlAccess:true,
+     });
      delivered=info.accepted.length>0;if(delivered)sent++;
     }catch(error){smtpError={code:error?.code??'SMTP_ERROR',responseCode:error?.responseCode??null};}
     if(!job.test)await rpc('finish_reminder_email',{account:job.user_id,item:job.reminder_id,delivery_day:job.delivery_day,delivered});

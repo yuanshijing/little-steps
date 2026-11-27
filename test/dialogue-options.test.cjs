@@ -102,7 +102,7 @@ test('wake: reward once, knows washed, no timer delay, health pause',()=>{
   assert.equal(x.state.stars,10);
   const y=start('wake');
   pick(y,'in_bed');
-  assert.ok(pick(y,'stuck'));assert.match(y.v.messages.at(-1).text,/发送 AI 消息/);
+  assert.ok(pick(y,'stuck'));assert.match(y.v.messages.at(-1).text,/请小星帮你想下一步/);
   assert.equal(V.free(y.state,'身体不舒服',now(7,34)),'local');
   pick(y,'pause');
   assert.ok(y.state.settings.pausedUntil>now(7,34).getTime());
@@ -319,8 +319,8 @@ function mount(state,run,withModel=true,elements={},SpeechRecognition,navigator)
   events['planet-trial']({detail:{ready:false}});
   const dispatch=(type,event)=>listen[type].forEach(fn=>fn({...event,type}));
   return {markup:(section='chat')=>api.screen(section),dispatch,click:(v1,value='')=>dispatch('click',{target:{closest:()=>({dataset:{v1,value}})}}),window,toasts,
-    send:(message,mode='local')=>dispatch('submit',{target:{dataset:{v1Form:'chat'},values:{message},reset(){}},
-      preventDefault(){},submitter:{value:mode}})};
+    send:message=>dispatch('submit',{target:{dataset:{v1Form:'chat'},values:{message},reset(){}},
+      preventDefault(){}})};
 }
 test('voice button is icon-only and starts without pre-focusing a field',()=>{
   const x=start('pm'), feedback={}, field={value:'原有草稿',maxLength:1500,focus(){this.focused=true;}};
@@ -531,12 +531,13 @@ test('view: fixed options make zero requests and each explicit AI send makes one
   });
   ui.click('choice',x.v.active.revision+'/difficulty');
   ui.click('choice',x.v.active.revision+'/unclear');
-  ui.send('这次先用基础回复');
   await wait();
   assert.equal(calls.length,0);
   assert.match(ui.markup(),/data-v1="choice"/);
-  assert.match(ui.markup(),/基础监督不消耗 Token/);
-  ui.send('请看看怎么打开材料','model');
+  assert.match(ui.markup(),/快捷选项不消耗 Token/);
+  assert.match(ui.markup(),/<button type="submit" class="primary"[^>]*>发送<\/button>/);
+  assert.doesNotMatch(ui.markup(),/基础回复|发送 AI 消息/);
+  ui.send('请看看怎么打开材料');
   await wait();
   assert.equal(calls.length,1);
   assert.equal(calls[0].route,'coach');
@@ -544,7 +545,7 @@ test('view: fixed options make zero requests and each explicit AI send makes one
   assert.match(ui.markup(),/先把材料移到眼前/);
   assert.doesNotMatch(ui.markup(),/不会渲染的选项|data-v1="modelOption"/);
   assert.match(ui.markup(),/data-v1="choice"/);
-  ui.send('如何接着做','model');
+  ui.send('如何接着做');
   await wait();
   assert.equal(calls.length,2);
   assert.ok(calls[1].input.recent.some(row=>row.text==='先把材料移到眼前。'));
@@ -561,7 +562,7 @@ test('view: unavailable model leaves fixed options on screen, stale reply stays 
     const x=start('bath');let calls=0;
     const ui=mount(x.state,async()=>{calls++;throw Error('timeout');},enabled);
     ui.click('choice',x.v.active.revision+'/busy');
-    ui.send('洗澡前需要先做什么','model');
+    ui.send('洗澡前需要先做什么');
     await wait();
     assert.equal(calls,enabled?1:0);
     assert.match(ui.markup(),/data-v1="choice"/);
@@ -570,11 +571,25 @@ test('view: unavailable model leaves fixed options on screen, stale reply stays 
   const x=start('pm');
   let complete;
   const ui=mount(x.state,()=>new Promise(resolve=>complete=resolve));
-  ui.send('我还在准备','model');
+  ui.send('我还在准备');
   V.open(x.state,'bath',now(20));
   complete({reply:'过期回复',quickReplies:['过期选项']});
   await wait();
   assert.doesNotMatch(ui.markup(),/过期回复|过期选项/);
+});
+test('view: the send button saves current review feedback locally without calling the model',async()=>{
+  const x=start('sleep'),calls=[];
+  const ui=mount(x.state,async(...args)=>{calls.push(args);});
+  const today=P.dateKey();
+  const key='daily/'+today;
+  x.v.reviewPrompts={[key]:{day:today,kind:'daily',pending:true}};
+  assert.equal(V.startReview(x.v,key),true);
+  assert.match(ui.markup(),/填写本次复盘反馈/);
+  ui.send('今天读完了一小节。');
+  await wait();
+  assert.equal(calls.length,0);
+  assert.equal(x.v.reviews[today].note,'今天读完了一小节。');
+  assert.doesNotMatch(ui.markup(),/填写本次复盘反馈/);
 });
 test('view: deep reviews request a model only after the explicit action',async()=>{
   const x=start('pm'),calls=[];

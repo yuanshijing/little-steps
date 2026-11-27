@@ -132,6 +132,7 @@
       const custom = a?.stage === 'wait' && a.id!=='wake' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = (a?.id === 'bath' && a.stage === 'bathTimer') || v.timer ? timerView(v) : '';
       const paused = getState().settings.pausedUntil > Date.now();
+      const writingReview = Boolean(V.activeReview(v));
       const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
         .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
@@ -154,10 +155,9 @@
           ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}
           ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
           ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>` : ''}
-        <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
-        <div class="controls"><button name="mode" value="local" class="primary">基础回复</button>${voiceButton('v1-input')}
-        <button name="mode" value="model" class="secondary" ${!modelEnabled||modelSending?'disabled':''}>发送 AI 消息</button></div></form>
-        <p class="subtle">基础监督不消耗 Token。发送 AI 消息会消耗 Token，并将本条消息及相关任务、对话、计划和允许检索的记忆发送给 DeepSeek。</p>
+        <form data-v1-form="chat"><label>${writingReview?'填写本次复盘反馈':'和小星聊聊'}<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
+        <div class="controls"><button type="submit" class="primary" ${!writingReview&&(!modelEnabled||modelSending)?'disabled':''}>发送</button>${voiceButton('v1-input')}</div></form>
+        <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选上方的状态。'}</p>
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
@@ -669,15 +669,13 @@
         button.textContent = '连接并测试 DeepSeek';
       }
     }
-    async function reply(text,useModel) {
+    async function reply(text,writingReview) {
       const state=getState(),v=vNow();
-      if(!useModel || !modelEnabled){
-        if(useModel)toast('AI 暂不可用，可以继续使用基础监督。');
+      if(writingReview){
         V.free(state,text);
         paint();
         return;
       }
-      if(modelSending || !text.trim())return;
       if(V.safetyReply(state,text))return paint();
       const input=V.modelContext(state,text);
       const thread=v.active?.thread, detail={thread,reminderId:input.reminderId};
@@ -860,10 +858,11 @@
             break;
           case 'settings': configureRewards(data); break;
           case 'chat': {
-            const useModel=e.submitter?.value==='model';
-            if(useModel && modelSending)return;
+            const writingReview=Boolean(V.activeReview(v));
+            const text=P.clean(data.message,500);
+            if(!text || (!writingReview && (!modelEnabled || modelSending)))return;
             form.reset();
-            void reply(data.message,useModel);
+            void reply(text,writingReview);
             return;
           }
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
