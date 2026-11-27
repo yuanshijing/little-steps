@@ -30,7 +30,7 @@
     const publicModel = !api && ['https:','file:'].includes(location.protocol) ? window.PlanetPublicDeepSeek : null;
     let day = date();
     let lastReview = '';
-    let modelChat = null, modelRequest = 0;
+    let modelSending = false;
     let speechSession=null;
     const speechFeedback=new Map();
     let micPermission;
@@ -127,13 +127,13 @@
     }
     function chatPage(v) {
       const a = v.active;
-      const dynamic = modelChat?.v === v && modelChat.revision === a?.revision ? modelChat : null;
       const fixed = a ? V.options(v).map(({id,label}) => btn('choice',label,a.revision+'/'+id)).join('') : '';
-      const controls = dynamic ? dynamic.options.map((label,i)=>btn('modelOption',label,String(i))).join('') : fixed;
+      const controls = fixed;
       const due = a?.due ? '下次跟进约 ' + new Date(a.due).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : '';
       const custom = a?.stage === 'wait' && a.id!=='wake' ? `<form data-v1-form="follow">${number('minutes','多少分钟后确认',10,1,1440)}<button class="secondary">确认时间</button></form>` : '';
       const timer = (a?.id === 'bath' && a.stage === 'bathTimer') || v.timer ? timerView(v) : '';
       const paused = getState().settings.pausedUntil > Date.now();
+      const writingReview = Boolean(V.activeReview(v));
       const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
         .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
       return `<div class="coach-layout"><div>` + card('消息', `<p class="subtle">${esc(modelStatus)}${paused ? ' · 监督已暂停' : ''}</p>
@@ -147,20 +147,18 @@
         <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview',row.kind==='daily'?'开始简短复盘':'开始每周复盘',key,true) : ''}
         ${row.pending ? btn('dismissReview',row.kind==='daily'?'今晚跳过':'稍后再看',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`).join('')}
         ${a ? `<p><b>${esc(V.title(v,a.id))}</b> <span class="subtle">${esc(due)}</span></p>` : ''}
-        ${controls ? (a?.stage==='sustain' && !dynamic
+        ${controls ? (a?.stage==='sustain'
           ? `<details><summary>确认专注进展</summary><div class="controls">${controls}</div></details>`
-          : `${a && a.stage!=='initial' && !dynamic && !a.prompt ? '<p>'+esc(V.phases[a.stage]?.question ?? '')+'</p>' : ''}
+          : `${a && a.stage!=='initial' && !a.prompt ? '<p>'+esc(V.phases[a.stage]?.question ?? '')+'</p>' : ''}
             <div class="controls">${controls}</div>`) : ''}
         ${a ? `<details${a.stage==='wait'?' open':''}><summary>更多操作</summary><div class="controls">
-          ${dynamic ? btn('fixedOptions','使用状态选项') : ''}
           ${a.id==='wake'||a.stage==='wait'?'':btn('agreeTime','约定下次确认')}
           ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}
           ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
           ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>` : ''}
-        <form data-v1-form="chat"><label>告诉小星你现在的状态<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
-        <div class="controls"><button class="primary">${usingTrial() ? '发给小星 · 试用' : '发给小星'}</button>${voiceButton('v1-input')}
-        ${(!usingTrial() && (api || modelEnabled)) ? '<button name="mode" value="model" class="secondary">用已配置模型分析本条消息</button>' : ''}</div></form>
-        ${(api || modelEnabled) ? '<p class="subtle">使用模型会把本条消息、今日重点、近期对话和你允许检索的相关记忆发送给模型服务。</p>' : ''}
+        <form data-v1-form="chat"><label>${writingReview?'填写本次复盘反馈':'和小星聊聊'}<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
+        <div class="controls"><button type="submit" class="primary" ${!writingReview&&(!modelEnabled||modelSending)?'disabled':''}>发送</button>${voiceButton('v1-input')}</div></form>
+        <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选上方的状态。'}</p>
         ${voice ? '<p class="subtle">语音转文字由浏览器提供，可能使用浏览器的在线服务。转写后可先检查再发送。</p>' : '<p class="subtle">当前浏览器未提供语音识别，可使用设备键盘听写。</p>'}
         ${a?.id === 'sleep' ? btn('tab','查看每日复盘','review') : ''}`) + timer +
         `</div><aside>` + card('对话工具', `<div class="section-links">${btn('open','回到正轨','return')}${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
@@ -697,43 +695,30 @@
         button.textContent = '连接并测试 DeepSeek';
       }
     }
-    function clearModelChat() {
-      modelChat=null;
-      modelRequest++;
-    }
-    async function showModel(state,v,input,revision,fallback) {
-      const request=++modelRequest;
-      const current=()=>getState()===state && v.active?.revision===revision && modelRequest===request;
+    async function reply(text,writingReview) {
+      const state=getState(),v=vNow();
+      if(writingReview){
+        V.free(state,text);
+        paint();
+        return;
+      }
+      if(V.safetyReply(state,text))return paint();
+      const input=V.modelContext(state,text);
+      const thread=v.active?.thread, detail={thread,reminderId:input.reminderId};
+      V.message(v,text.trim(),'you',detail);
+      modelSending=true;
+      paint();
       try {
         const value=await callModel('coach',input);
         if(typeof value.reply!=='string' || !value.reply.trim())throw Error('无可用回复');
-        if(!current())return;
-        const detail={thread:v.active?.thread,reminderId:input.reminderId,at:Date.now()};
-        if(fallback)fallback.text=value.reply;
-        else V.message(v,value.reply,'coach',detail);
-        const options=Array.isArray(value.quickReplies) ? [...new Set(value.quickReplies
-          .filter(text=>typeof text==='string' && text.trim() && text.length<=50).map(text=>text.trim()))].slice(0,3):[];
-        modelChat={v,revision,options};
+        if(getState()===state && v.active?.thread===thread)V.message(v,value.reply,'coach',detail);
       } catch {
-        if(current())modelChat=null;
+        if(getState()===state)toast('AI 暂未回复，可以继续使用下方的基础状态选项。');
       } finally {
-        if(current()){if(page()==='v1')paint();else save();}
+        modelSending=false;
+        if(getState()===state){if(page()==='v1')paint();else save();}
         void refreshUsage();
       }
-    }
-    function guideFixed(state,v,guidance) {
-      if(guidance && (modelEnabled || api))void showModel(state,v,guidance.input,guidance.revision);
-    }
-    async function reply(text,useModel) {
-      const state=getState(),v=vNow();
-      clearModelChat();
-      const result=V.free(state,text);
-      if(result!=='fallback' || !useModel || (!api && !modelEnabled))return;
-      if(v.active && (v.active.fixedTrace?.length ?? 0)<2)return;
-      const fallback=v.messages.at(-1),revision=v.active?.revision;
-      const input=V.modelContext(state,text);
-      if(input.recent.at(-1)===fallback)input.recent=input.recent.slice(0,-1);
-      await showModel(state,v,input,revision,fallback);
     }
     document.addEventListener('click', e => {
       const b = e.target.closest('[data-v1]');
@@ -807,7 +792,7 @@
         }
         if (name === 'open') {
           const opened = V.open(state,value);
-          clearModelChat();
+
           if (!opened && v.active?.id !== value) toast('这个环节今天已经记录了');
           if (page() !== 'v1') selectTab('chat');
         }
@@ -819,17 +804,16 @@
           if (!r) return;
           if (r?.award) reward(r.award);
           else if (r && !wasComplete && record?.completedAt != null) playCompletionSound();
-          clearModelChat();
-          if(r.guidance)guideFixed(state,v,r.guidance);
+
         }
         if (name === 'outcome') { V.park(v,value); V.message(v,'已记录「'+value+'」。'); }
         if (name === 'remindOff' && v.settings.times[v.active?.id]) {
           if (!window.confirm('关闭「'+V.title(v,v.active.id)+'」的后续提醒？'))return;
           v.settings.times[v.active.id].enabled=false;
           V.park(v,'未记录');
-          clearModelChat();
+
         }
-        if (name === 'pause') { state.settings.pausedUntil=Date.now()+3600000; V.park(v,'暂时延迟'); clearModelChat(); toast('已暂停监督一小时'); }
+        if (name === 'pause') { state.settings.pausedUntil=Date.now()+3600000; V.park(v,'暂时延迟'); toast('已暂停监督一小时'); }
         if (name === 'resume') { state.settings.pausedUntil = 0; toast('已恢复监督'); }
         if (name === 'agreeTime') V.agreeTime(v);
         if (name === 'timer') V.timerAction(v,value);
@@ -853,11 +837,6 @@
           fields['when'+value].value='09:00';
           fields['step'+value].value='';
           return;
-        }
-        if (name === 'fixedOptions') clearModelChat();
-        if (name === 'modelOption') {
-          const selection=modelChat?.v===v && modelChat.revision===v.active?.revision ? modelChat.options[Number(value)] : null;
-          if (selection) void reply(selection,true);
         }
         if (name === 'extract') {
           const form=document.querySelector('[data-v1-form="tomorrow"]');
@@ -900,7 +879,14 @@
             if (configureSchedule(data) === false) return;
             break;
           case 'settings': configureRewards(data); break;
-          case 'chat': void reply(data.message,usingTrial()||Boolean(modelChat)||e.submitter?.value==='model'); form.reset(); break;
+          case 'chat': {
+            const writingReview=Boolean(V.activeReview(v));
+            const text=P.clean(data.message,500);
+            if(!text || (!writingReview && (!modelEnabled || modelSending)))return;
+            form.reset();
+            void reply(text,writingReview);
+            return;
+          }
           case 'follow': if(!V.setFollow(v,data.minutes)) toast('当前无法约定时间'); break;
           case 'timer': V.timerAction(v,'start',data.mode,data.custom); break;
           case 'daily':

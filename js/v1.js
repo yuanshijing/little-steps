@@ -441,9 +441,8 @@
     }
     const same=v.active?.thread===a.thread;
     if (same && reply.endsWith('？')) v.active.prompt=reply;
-    const guidance=same && trace.length===2 && choice.guide
-      ? {input:modelContext(state,choice.label),revision:v.active.revision}:null;
-    return {award:v.rewardHistory.length>before ? v.rewardHistory.at(-1):null,guidance};
+    if(same && choice.guide)message(v,'如果这一步还是卡住，可以在输入框描述情况，请小星帮你想下一步。','coach',detail);
+    return {award:v.rewardHistory.length>before ? v.rewardHistory.at(-1):null};
   }
   function setFollow(v, minutes, now = new Date()) {
     if (!v.active || v.active.id === 'wake' || v.active.stage !== 'wait') return false;
@@ -637,18 +636,28 @@
       message(v, '解锁「' + name + '」 ⭐ +' + points);
     }
   }
+  function safetyReply(state, input, now = new Date()) {
+    if(!/自杀|不想活|伤害自己|伤害别人|结束生命/.test(input))return false;
+    const v=init(state), a=v.active;
+    message(v,P.clean(input,500),'you',a?{thread:a.thread,reminderId:a.id}:{});
+    state.settings.pausedUntil=now.getTime()+60*M;
+    park(v,'暂时延迟');
+    message(v,'你的安全比计划重要。如果你或他人可能马上受伤，请立即联系当地急救服务，并请身边可信任的人来陪你。现在可以先去有人陪伴的地方。');
+    return true;
+  }
+  function activeReview(v, now = new Date()) {
+    const review = v.reviewPrompts?.[v.reviewSession];
+    if(!review?.pending)return null;
+    const today=P.dateKey(now);
+    return (review.kind==='daily' ? review.day===today : monday(review.day)===monday(today)) ? review : null;
+  }
   function free(state, input, now = new Date()) {
     const v = init(state);
     const text = P.clean(input, 500);
     if (!text) return null;
+    if(safetyReply(state,text,now))return 'urgent';
     const a=v.active, detail=a?{thread:a.thread,reminderId:a.id}:{};
     message(v,text,'you',detail);
-    if (/自杀|不想活|伤害自己|伤害别人|结束生命/.test(text)) {
-      state.settings.pausedUntil = now.getTime() + 60 * M;
-      park(v, '暂时延迟');
-      message(v, '你的安全比计划重要。如果你或他人可能马上受伤，请立即联系当地急救服务，并请身边可信任的人来陪你。现在可以先去有人陪伴的地方。');
-      return 'urgent';
-    }
     if (/暂停|不想被提醒|停止监督/.test(text)) {
       state.settings.pausedUntil = now.getTime() + 60 * M;
       park(v,'暂时延迟');
@@ -656,11 +665,8 @@
       return 'local';
     }
     const reviewKey = v.reviewSession;
-    const review = v.reviewPrompts?.[reviewKey];
-    const today = P.dateKey(now);
-    const currentReview = review?.kind === 'daily' ? review.day === today
-      : review && monday(review.day) === monday(today);
-    if (review?.pending && currentReview) {
+    const review = activeReview(v,now);
+    if (review) {
       if (review.kind === 'daily') {
         v.reviews[review.day] = {note:text,summary:dailyText(v,review.day)};
         achievements(state,now);
@@ -705,5 +711,5 @@
     return 'fallback';
   }
   return { ids, intervals, star, data, phases, init, modelContext, monday, chooseQuote, isCustom, reminderIds, allReminderIds, displayReminderIds, manualReminderOrder, reminderTimeOrder, title, record, message, open, options, choose, park,
-    tick, startReview, finishReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, achievementPoints, free, planText, catalog };
+    tick, startReview, finishReview, activeReview, setFollow, agreeTime, elapsed, timerAction, dailyRows, dailyText, weekly, achievements, achievementPoints, safetyReply, free, planText, catalog };
 });
