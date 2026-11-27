@@ -304,7 +304,7 @@
       plan:a ? confirmedPlan(state,a.day).map(row=>[row.title,row.firstStep].filter(Boolean).join(' · ')).join('\n') : '',
       style:state.settings.style, strategies,
       recent:a?.thread ? v.messages.filter(row=>row.thread===a.thread).slice(-8) : v.messages.slice(-5),
-      memories:v.settings.memory ? v.memory.filter(row=>scenes.includes(row.scene)).slice(-4) : []};
+      memories:v.settings.memory ? v.memory.filter(row=>scenes.includes(row.scene)).slice(-4).map(({text})=>({text})) : []};
   }
   function waitFor(v,resume,now) {
     go(v,'wait',now,null,{resume});
