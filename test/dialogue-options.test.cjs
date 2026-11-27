@@ -397,7 +397,9 @@ test('return action sits below chat messages and focus has a short label',()=>{
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
   assert.ok(markup.indexOf('id="v1-chat"')<markup.indexOf('chat-message-actions'));
-  assert.ok(markup.indexOf('chat-message-actions')<markup.indexOf('对话工具'));
+  assert.match(markup,/class="primary chat-return-button"/);
+  assert.ok(markup.indexOf('chat-message-actions')<markup.indexOf('小工具'));
+  assert.match(markup,/>小工具<\/h2>[\s\S]*?<\/section><button type="button" class="chat-reminder-link"[^>]*>查看主动提醒<\/button>/);
   assert.match(markup,/data-target="focus">专注计时<\/button>/);
   ui.click('open','return');
   assert.equal(x.v.active.id,'return');

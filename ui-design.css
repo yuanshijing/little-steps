@@ -127,6 +127,12 @@ button:focus-visible { outline-color: #9a78df; }
 .plan-checkins .plan-checkin[aria-pressed="true"] { background: var(--lav2); border-color: var(--lav); }
 .plan-task-controls .plan-chat-action, .plan-task-controls:not(:has(.plan-chat-action)) > .reminder-minus { margin-inline-start: auto; }
 .chat-message-actions { margin-top: 10px; }
+.chat-message-actions .chat-return-button { min-height: 42px; padding: 9px 16px; font-size: 14px;
+  background: #4f3288; border-color: #4f3288; }
+.chat-message-actions .chat-return-button:hover { background: #3f286d; border-color: #3f286d; }
+.chat-reminder-link { display: block; width: 100%; padding: 11px 14px; text-align: left; font-weight: 700;
+  color: #294d3e; background: #e9f5ef; border: 1px solid #cee7db; border-radius: 12px; }
+.chat-reminder-link:hover { background: #dcefe5; }
 .coach-style-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,150px),1fr)); gap: 10px; margin-top: 12px; }
 .v1-card label.coach-style-choice { display: flex; align-items: start; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .coach-style-choice:has(input:checked) { background: var(--lav2); border-color: #ac9ce6; }
