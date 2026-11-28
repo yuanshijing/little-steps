@@ -695,6 +695,25 @@ test('recovery callback opens the password form and stores the verifier outside 
   await wait();
   assert.match(recovery.shown.at(-1).innerHTML,/data-password-change[\s\S]*保存新密码/);
 });
+test('a recovery email code opens the password form without an existing browser session',async()=>{
+  const user={id:'test',email:'fixture@example.test'};
+  const recovery=loginHarness(null,{
+    async verifyOtp(input) {
+      assert.equal(input.email,user.email);
+      assert.equal(input.type,'recovery');
+      return input.token==='123456'?{data:{session:{user}}}:{error:{status:403}};
+    }
+  });
+  recovery.actions.load();
+  await wait();
+  assert.match(recovery.sync.panel(),/输入邮件验证码/);
+  const form={matches:selector=>selector==='[data-recovery-code]',fields:{email:user.email,token:'654321'},elements:{token:{}}};
+  await recovery.actions.submit({target:form,preventDefault(){}});
+  assert.match(recovery.notices.at(-1),/无效或已过期/);
+  form.fields.token='123456';
+  await recovery.actions.submit({target:form,preventDefault(){}});
+  assert.match(recovery.shown.at(-1).innerHTML,/保存新密码/);
+});
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];
   const ui=mount(x.state,async(route,input)=>{

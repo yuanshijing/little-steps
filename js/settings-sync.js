@@ -334,7 +334,14 @@
         <label class="planet-login-remember"><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
         <div class="controls"><button class="primary" name="mode" value="login">登录</button>
         <button class="secondary" name="mode" value="register">创建邮箱账号</button>
-        <button class="secondary small" name="mode" value="recover" formnovalidate>忘记密码</button></div></form>`;
+        <button class="secondary small" name="mode" value="recover" formnovalidate>忘记密码</button></div></form>
+        <details class="reminder-details" data-recovery-entry><summary>输入邮件验证码</summary>
+          <form data-recovery-code method="post">
+            <label class="planet-login-field">登录邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
+            <label class="planet-login-field">邮件验证码<input class="field" name="token" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
+            <button class="secondary small" type="submit">验证并设置新密码</button>
+          </form>
+        </details>`;
       return `<p>已登录 ${esc(user.email)}</p><p class="subtle" role="status">${esc(status)}</p>
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
@@ -405,6 +412,25 @@
       document.head.append(sdk);
       document.addEventListener('submit',async event=>{
         const form=event.target;
+        if(form.matches('[data-recovery-code]')){
+          event.preventDefault();
+          if(!client || passwordBusy)return;
+          const fields=new FormData(form);
+          const email=String(fields.get('email')??'').trim();
+          const token=String(fields.get('token')??'').trim();
+          if(!email || !/^[0-9]{6}$/.test(token))return toast('请输入登录邮箱和邮件里的六位验证码。');
+          passwordBusy=true;
+          try {
+            const {data,error}=await client.auth.verifyOtp({email,token,type:'recovery'});
+            if(error || !data?.session?.user){
+              return toast(error?.status===429?'验证过于频繁，请稍后再试。':'验证码无效或已过期，请重新申请密码重置。');
+            }
+            sessionChanged(data.session);
+            openPassword(data.session.user);
+          } catch {toast('无法连接登录服务，请稍后重试。');}
+          finally {passwordBusy=false;form.elements.token.value='';}
+          return;
+        }
         if(form.matches('[data-password-change]')){
           event.preventDefault();
           if(!client || !user || user.id!==passwordAccount || passwordBusy)return;
@@ -479,7 +505,16 @@
           passwordBusy=true;
           try {
             const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
-            toast(error?'暂未发送重置邮件，请稍后重试。':'如果此邮箱已关联账号，请用发起重置时的浏览器打开邮件中的链接。');
+            if(error){
+              toast(error.status===429?'重置邮件申请太频繁，请稍后再试。':'暂未发送重置邮件，请稍后重试。');
+            } else {
+              const entry=form.nextElementSibling;
+              if(entry?.matches('[data-recovery-entry]')){
+                entry.open=true;
+                if(!entry.querySelector('[name="email"]').value)entry.querySelector('[name="email"]').value=email;
+              }
+              toast('请查收密码重置邮件。可以输入邮件里的验证码，或用发起申请的浏览器打开邮件链接。');
+            }
           } catch {toast('无法连接登录服务，请稍后重试。');}
           finally {passwordBusy=false;}
           return;
