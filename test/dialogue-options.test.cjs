@@ -598,10 +598,10 @@ test('dragging and keyboard move the reminder row, and reset restores time order
   assert.equal(x.v.settings.reminderOrder,undefined);
 });
 const wait=()=>new Promise(resolve=>setImmediate(resolve));
-function loginHarness(session) {
-  const actions={}, shown=[], account={textContent:''};
+function loginHarness(session,auth={}) {
+  const actions={}, shown=[], account={textContent:''}, notices=[];
   const document={
-    getElementById:()=>null, querySelector:()=>account, addEventListener(){},
+    getElementById:()=>null, querySelector:()=>account, addEventListener(type,fn){actions[type]=fn;},
     head:{append(){}},body:{append(){}},
     createElement(kind){
       if(kind==='script')return {addEventListener:(type,handler)=>{actions[type]=handler;}};
@@ -613,19 +613,20 @@ function loginHarness(session) {
       };
     },
   };
-  const window={Planet:P,PlanetV1:V,addEventListener(){},dispatchEvent(){},
+  const window={Planet:P,PlanetV1:V,addEventListener(type,fn){actions[type]=fn;},dispatchEvent(){},
     supabase:{createClient:()=>({
-      auth:{onAuthStateChange(){},getSession:async()=>({data:{session}})},
+      auth:{onAuthStateChange(){},getSession:async()=>({data:{session}}),...auth},
       from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null})})})}),
     })}};
   runInNewContext(readFileSync('js/settings-sync.js','utf8'),{window,globalThis:window,document,
     location:{origin:'null',pathname:'/index.html',protocol:'file:'},
     sessionStorage:{getItem:()=> 'old dismissed flag'},setTimeout:()=>1,clearTimeout(){},
-    AbortSignal,CustomEvent:class{},fetch:async()=>Response.json({ready:false})});
+    AbortSignal,CustomEvent:class{},FormData:class {constructor(form){this.get=key=>form.fields[key];}},
+    fetch:async()=>Response.json({ready:false})});
   const state=P.createState();
-  const sync=window.PlanetSettingsSync.mount({state:()=>state,save(){},redraw(){},toast(){},storage:{},
+  const sync=window.PlanetSettingsSync.mount({state:()=>state,save(){},redraw(){},toast:message=>notices.push(message),storage:{},
     config:{url:'https://fixture.supabase.co',key:'sb_publishable_fixture'}});
-  return {actions,shown,sync,account};
+  return {actions,shown,sync,account,notices,window};
 }
 test('guests get the login modal, can dismiss and open it again, and persisted sessions skip it',async()=>{
   const guest=loginHarness(null);
@@ -646,6 +647,31 @@ test('guests get the login modal, can dismiss and open it again, and persisted s
   offline.actions.error();
   assert.equal(offline.shown.length,1);
   assert.match(offline.shown[0].innerHTML,/暂时无法加载登录服务/);
+});
+test('a verified replacement address updates the displayed email without changing account identity',async()=>{
+  const original={id:'test',email:'old@example.test'};
+  const replacement={id:original.id,email:'new@example.test'};
+  const changes=[];
+  const signed=loginHarness({user:original},{
+    async updateUser({email},{emailRedirectTo}){changes.push([email,emailRedirectTo]);return {data:{user:original}};},
+    async getUser(){return {data:{user:replacement}};},
+  });
+  signed.actions.load();
+  await wait();
+  assert.match(signed.sync.panel(),/更换登录邮箱/);
+  const form={matches:selector=>selector==='[data-email-change]',fields:{email:'OLD@example.test'},querySelector:()=>null,reset(){}};
+  await signed.actions.submit({target:form,preventDefault(){}});
+  assert.equal(changes.length,0);
+  form.fields.email=' New@example.test ';
+  await signed.actions.submit({target:form,preventDefault(){}});
+  assert.deepEqual(changes,[['new@example.test','https://yuanshijing.github.io/little-steps/']]);
+  assert.match(signed.notices.at(-1),/查收验证邮件/);
+  assert.equal(signed.account.textContent,original.email);
+  signed.actions.focus();
+  await wait();
+  assert.equal(signed.account.textContent,replacement.email);
+  assert.match(signed.sync.panel(),/已登录 new@example\.test/);
+  assert.equal(signed.window.PlanetTrial.accountId(),original.id);
 });
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];

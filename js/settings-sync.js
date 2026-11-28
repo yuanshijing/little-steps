@@ -174,6 +174,7 @@
       timer=setTimeout(()=>void push(),350);
     }
     let emailEnabled,emailBusy=false,emailEligible=null,emailError='',accountVersion=0;
+    let emailChangeBusy=false;
     const emailPreference=()=>emailEnabled ?? (emailEligible===true);
     async function readEmailPreference() {
       if(!user || emailBusy)return;
@@ -280,6 +281,13 @@
       const next=session?.user;
       if (next?.id===user?.id) {
         if(!next){status='使用邮箱账号同步设置';redraw();showFirstLogin();updateLoginStatus();}
+        else if(next.email!==user.email){
+          user=next;
+          const entry=document.querySelector('[data-account-entry]');
+          if(entry)entry.textContent=user.email;
+          redraw();
+          void refreshTrial();
+        }
         return;
       }
       clearTimeout(timer);
@@ -310,6 +318,13 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
+        <details class="reminder-details"><summary>更换登录邮箱</summary>
+          <form data-email-change method="post">
+            <label class="planet-login-field">新邮箱<input class="field" type="email" name="email" required autocomplete="email" maxlength="254"></label>
+            <p class="subtle">请按验证邮件的提示确认。完成后用新邮箱登录原账号。内测与提醒邮件资格按邮箱核对。</p>
+            <button class="secondary" type="submit">发送验证邮件</button>
+          </form>
+        </details>
         <p class="subtle">账号同步定时提醒设置、晨间语录与音效。具体任务拆解、对话、长期记忆、打卡、积分及复盘保存在此设备。</p>
         ${emailPreferencePanel()}`;
     }
@@ -353,6 +368,40 @@
       document.head.append(sdk);
       document.addEventListener('submit',async event=>{
         const form=event.target;
+        if(form.matches('[data-email-change]')){
+          event.preventDefault();
+          if(!client || !user || emailChangeBusy)return;
+          const email=String(new FormData(form).get('email')??'').trim().toLowerCase();
+          if(!email || email===user.email?.toLowerCase())return toast('请输入与当前邮箱不同的新邮箱。');
+          const id=user.id, submit=form.querySelector('button[type="submit"]');
+          emailChangeBusy=true;
+          if(submit)submit.disabled=true;
+          try {
+            const {data,error}=await client.auth.updateUser({email},{emailRedirectTo:redirect});
+            if(user?.id!==id)return;
+            if(error){
+              toast(({
+                email_exists:'这个邮箱已关联其他账号。',
+                user_already_exists:'这个邮箱已关联其他账号。',
+                email_address_not_authorized:'登录服务暂时无法向该邮箱发送验证邮件。',
+                over_email_send_rate_limit:'验证邮件发送太频繁，请稍后再试。',
+                email_address_invalid:'请核对新邮箱地址。',
+              })[error.code]??'未能发送验证邮件，请稍后再试。');
+              return;
+            }
+            form.reset();
+            if(data?.user?.id===id && data.user.email?.toLowerCase()===email){
+              sessionChanged({user:data.user});
+              toast('登录邮箱已更换。');
+            } else toast('邮箱更换申请已提交，请查收验证邮件。');
+          } catch {
+            if(user?.id===id)toast('无法连接登录服务，请稍后重试。');
+          } finally {
+            emailChangeBusy=false;
+            if(submit)submit.disabled=false;
+          }
+          return;
+        }
         if(!form.matches('[data-sync-form]'))return;
         event.preventDefault();
         if(!client){toast(status);return;}
@@ -399,7 +448,13 @@
         });
       });
       window.addEventListener('focus',()=>{
-        if(user){void refreshTrial();void readEmailPreference();}
+        if(user){
+          const sinceFocus=user;
+          void client.auth.getUser().then(({data})=>{
+            if(user===sinceFocus && data?.user?.id===sinceFocus.id)sessionChanged({user:data.user});
+          }).catch(()=>{});
+          void refreshTrial();void readEmailPreference();
+        }
         if(!user||pending||busy)return;
         if(hadError && remote && signature()!==last){hadError=false;void push();}
         else if(!remote || signature()===last)void pull();
