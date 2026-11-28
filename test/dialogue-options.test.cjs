@@ -599,7 +599,7 @@ test('dragging and keyboard move the reminder row, and reset restores time order
 });
 const wait=()=>new Promise(resolve=>setImmediate(resolve));
 function loginHarness(session,auth={}) {
-  const actions={}, shown=[], account={textContent:''}, notices=[];
+  const actions={}, shown=[], account={textContent:''}, notices=[], saved=new Map();
   const document={
     getElementById:()=>null, querySelector:()=>account, addEventListener(type,fn){actions[type]=fn;},
     head:{append(){}},body:{append(){}},
@@ -624,7 +624,8 @@ function loginHarness(session,auth={}) {
     AbortSignal,CustomEvent:class{},FormData:class {constructor(form){this.get=key=>form.fields[key];}},
     fetch:async()=>Response.json({ready:false})});
   const state=P.createState();
-  const sync=window.PlanetSettingsSync.mount({state:()=>state,save(){},redraw(){},toast:message=>notices.push(message),storage:{},
+  const storage={getItem:key=>saved.get(key)??null,setItem:(key,value)=>saved.set(key,value),removeItem:key=>saved.delete(key)};
+  const sync=window.PlanetSettingsSync.mount({state:()=>state,save(){},redraw(){},toast:message=>notices.push(message),storage,
     config:{url:'https://fixture.supabase.co',key:'sb_publishable_fixture'}});
   return {actions,shown,sync,account,notices,window};
 }
@@ -665,13 +666,14 @@ test('a verified replacement address updates the displayed email without changin
   form.fields.email=' New@example.test ';
   await signed.actions.submit({target:form,preventDefault(){}});
   assert.deepEqual(changes,[['new@example.test','https://yuanshijing.github.io/little-steps/']]);
-  assert.match(signed.notices.at(-1),/查收验证邮件/);
+  assert.match(signed.notices.at(-1),/完成邮箱验证.*设置新密码/);
   assert.equal(signed.account.textContent,original.email);
   signed.actions.focus();
   await wait();
   assert.equal(signed.account.textContent,replacement.email);
   assert.match(signed.sync.panel(),/已登录 new@example\.test/);
   assert.equal(signed.window.PlanetTrial.accountId(),original.id);
+  assert.match(signed.shown.at(-1).innerHTML,/设置新密码/);
 });
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];

@@ -174,7 +174,30 @@
       timer=setTimeout(()=>void push(),350);
     }
     let emailEnabled,emailBusy=false,emailEligible=null,emailError='',accountVersion=0;
-    let emailChangeBusy=false;
+    let emailChangeBusy=false,passwordBusy=false,passwordAccount=null;
+    const passwordKey=id=>'little-steps-password-after-email/'+id;
+    function needsPassword(account){
+      try{return storage.getItem(passwordKey(account.id))===account.email?.toLowerCase();}
+      catch{return false;}
+    }
+    function openPassword(account) {
+      if(!account || passwordAccount===account.id)return;
+      passwordAccount=account.id;
+      const dialog=document.createElement('dialog');
+      dialog.className='planet-login-dialog';
+      dialog.setAttribute('aria-labelledby','planet-password-title');
+      dialog.innerHTML=`<h2 id="planet-password-title" class="section-title">设置新密码</h2>
+        <form data-password-change method="post">
+          <label class="planet-login-field">新密码<input class="field" type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+          <div class="controls"><button class="primary" type="submit">保存新密码</button>
+          <button class="secondary" type="button" data-dismiss-password>稍后设置</button></div>
+        </form>`;
+      dialog.querySelector('[data-dismiss-password]').addEventListener('click',()=>dialog.close());
+      dialog.addEventListener('close',()=>{passwordAccount=null;dialog.remove();},{once:true});
+      loginDialog?.close();
+      document.body.append(dialog);
+      dialog.showModal();
+    }
     const emailPreference=()=>emailEnabled ?? (emailEligible===true);
     async function readEmailPreference() {
       if(!user || emailBusy)return;
@@ -287,6 +310,7 @@
           if(entry)entry.textContent=user.email;
           redraw();
           void refreshTrial();
+          if(needsPassword(user))openPassword(user);
         }
         return;
       }
@@ -303,17 +327,21 @@
       if(user)void refreshTrial();
       status=user?'正在检查云端设置…':'使用邮箱账号同步设置';
       redraw();
-      if(user){void pull();void readEmailPreference();}
+      if(user){
+        if(needsPassword(user))openPassword(user);
+        void pull();void readEmailPreference();
+      }
     }
     const button=(action,label)=>`<button type="button" class="secondary small" data-sync="${action}">${label}</button>`;
     function panel() {
       if(!enabled)return '<p class="subtle">'+status+'。设置继续保存在当前浏览器。</p>';
       if(!user)return `<p class="subtle" role="status">${esc(status)}</p><form data-sync-form method="post">
         <label class="planet-login-field">邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
-        <label class="planet-login-field">密码<input class="field" type="password" name="password" required minlength="8" autocomplete="current-password"></label>
+        <label class="planet-login-field">密码<input class="field" type="password" name="password" minlength="8" autocomplete="current-password"></label>
         <label class="planet-login-remember"><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
         <div class="controls"><button class="primary" name="mode" value="login">登录</button>
-        <button class="secondary" name="mode" value="register">创建邮箱账号</button></div></form>`;
+        <button class="secondary" name="mode" value="register">创建邮箱账号</button>
+        <button class="secondary small" name="mode" value="recover" formnovalidate>忘记密码</button></div></form>`;
       return `<p>已登录 ${esc(user.email)}</p><p class="subtle" role="status">${esc(status)}</p>
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
@@ -321,10 +349,11 @@
         <details class="reminder-details account-email-change"><summary>更换登录邮箱</summary>
           <form data-email-change method="post">
             <label class="planet-login-field">新邮箱<input class="field" type="email" name="email" required autocomplete="email" maxlength="254"></label>
-            <p class="subtle">请按验证邮件的提示确认。完成后用新邮箱登录原账号。内测与提醒邮件资格按邮箱核对。</p>
+            <p class="subtle">请按验证邮件的提示确认，再设置新密码。原账号的同步设置会继续使用。</p>
             <button class="secondary small" type="submit">发送验证邮件</button>
           </form>
         </details>
+        <div class="controls">${button('password','设置新密码')}</div>
         <p class="subtle">账号同步定时提醒设置、晨间语录与音效。具体任务拆解、对话、长期记忆、打卡、积分及复盘保存在此设备。</p>
         ${emailPreferencePanel()}`;
     }
@@ -357,7 +386,10 @@
       sdk.addEventListener('load',()=>{
         try {
           client=window.supabase.createClient(config.url,config.key,{auth:{flowType:'pkce',storage:authStorage}});
-          client.auth.onAuthStateChange((_,session)=>setTimeout(()=>sessionChanged(session),0));
+          client.auth.onAuthStateChange((event,session)=>setTimeout(()=>{
+            sessionChanged(session);
+            if(event==='PASSWORD_RECOVERY')openPassword(session?.user);
+          },0));
           void client.auth.getSession().then(({data,error})=>{
             if(authResolved)return;
             if(error)sdkUnavailable();else sessionChanged(data?.session);
@@ -368,6 +400,24 @@
       document.head.append(sdk);
       document.addEventListener('submit',async event=>{
         const form=event.target;
+        if(form.matches('[data-password-change]')){
+          event.preventDefault();
+          if(!client || !user || user.id!==passwordAccount || passwordBusy)return;
+          const password=String(new FormData(form).get('password')??'');
+          if(password.length<8)return toast('请设置至少 8 个字符的新密码。');
+          const id=user.id;
+          passwordBusy=true;
+          try {
+            const {error}=await client.auth.updateUser({password});
+            if(user?.id!==id)return;
+            if(error)return toast(error.code==='same_password'?'请使用与原密码不同的新密码。':'未能保存新密码，请检查密码规则或重新打开重置邮件。');
+            try{storage.removeItem(passwordKey(id));}catch{}
+            form.closest('dialog')?.close();
+            toast('新密码已保存。');
+          } catch { toast('无法连接登录服务，请稍后重试。'); }
+          finally { passwordBusy=false;form.reset(); }
+          return;
+        }
         if(form.matches('[data-email-change]')){
           event.preventDefault();
           if(!client || !user || emailChangeBusy)return;
@@ -389,11 +439,13 @@
               })[error.code]??'未能发送验证邮件，请稍后再试。');
               return;
             }
+            try{storage.setItem(passwordKey(id),email);}catch{}
             form.reset();
             if(data?.user?.id===id && data.user.email?.toLowerCase()===email){
               sessionChanged({user:data.user});
-              toast('登录邮箱已更换。');
-            } else toast('邮箱更换申请已提交，请查收验证邮件。');
+              openPassword(data.user);
+              toast('登录邮箱已更换，请设置新密码。');
+            } else toast('请按邮件提示完成邮箱验证，然后回到小步星球设置新密码。');
           } catch {
             if(user?.id===id)toast('无法连接登录服务，请稍后重试。');
           } finally {
@@ -407,6 +459,19 @@
         if(!client){toast(status);return;}
         const fields=new FormData(form);
         const email=String(fields.get('email')).trim(),password=String(fields.get('password'));
+        if(event.submitter?.value==='recover'){
+          const field=form.elements.email;
+          if(!email || !field.checkValidity())return field.reportValidity();
+          if(passwordBusy)return;
+          passwordBusy=true;
+          try {
+            const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
+            toast(error?'暂未发送重置邮件，请稍后重试。':'如果此邮箱已关联账号，请打开密码重置邮件。');
+          } catch {toast('无法连接登录服务，请稍后重试。');}
+          finally {passwordBusy=false;}
+          return;
+        }
+        if(password.length<8)return toast('请输入至少 8 个字符的密码。');
         const register=event.submitter?.value==='register';
         rememberLogin=fields.has('remember');
         try {
@@ -433,6 +498,7 @@
       document.addEventListener('click',event=>{
         const op=event.target.closest('[data-sync]')?.dataset.sync;
         if(!op||!user)return;
+        if(op==='password')return openPassword(user);
         if(op==='adopt'&&remote&&!busy)adopt(remote);
         if(op==='push')void push();
         if(op==='email-retry'){
