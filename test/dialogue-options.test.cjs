@@ -642,7 +642,7 @@ test('guests get the login modal, can dismiss and open it again, and persisted s
   assert.equal(signed.shown.length,0);
   assert.equal(signed.sync.openLogin(),false);
   assert.equal(signed.account.textContent,'fixture@example.test');
-  signed.actions.click({target:{closest:()=>({dataset:{sync:'reset-password'}})}});
+  signed.actions.click({target:{closest:selector=>selector==='[data-sync]'?{dataset:{sync:'reset-password'}}:null}});
   assert.match(signed.shown.at(-1).innerHTML,/data-password-change[\s\S]*保存新密码/);
   const offline=loginHarness(null);
   offline.actions.error();
@@ -706,13 +706,47 @@ test('a recovery email code opens the password form without an existing browser 
   });
   recovery.actions.load();
   await wait();
-  assert.match(recovery.sync.panel(),/输入邮件验证码/);
+  assert.match(recovery.sync.panel(),/data-recovery-view hidden[\s\S]*发送重置邮件[\s\S]*data-recovery-entry hidden/);
   const form={matches:selector=>selector==='[data-recovery-code]',fields:{email:user.email,token:'654321'},elements:{token:{}}};
   await recovery.actions.submit({target:form,preventDefault(){}});
   assert.match(recovery.notices.at(-1),/无效或已过期/);
   form.fields.token='123456';
   await recovery.actions.submit({target:form,preventDefault(){}});
   assert.match(recovery.shown.at(-1).innerHTML,/保存新密码/);
+});
+test('opening password recovery waits for an explicit email request before revealing the code entry',async()=>{
+  const requests=[], address='fixture@example.test';
+  const guest=loginHarness(null,{
+    async resetPasswordForEmail(email){
+      requests.push(email);
+      return requests.length===1?{error:{status:429}}:{error:null};
+    },
+  });
+  guest.actions.load();
+  await wait();
+  const login={hidden:false,elements:{email:{value:address}}};
+  const email={value:'',focus(){}}, codeEmail={value:''};
+  const entry={hidden:true,querySelector:()=>codeEmail}, hint={hidden:true};
+  const view={hidden:true,querySelector:selector=>({
+    '[name="email"]':email,'[data-recovery-entry]':entry,'[data-recovery-hint]':hint,
+  })[selector]};
+  const forms={querySelector:selector=>selector==='[data-sync-form]'?login:view};
+  const button={closest:()=>forms,hasAttribute:()=>true};
+  guest.actions.click({target:{closest:()=>button}});
+  assert.equal(login.hidden,true);
+  assert.equal(view.hidden,false);
+  assert.equal(email.value,address);
+  assert.deepEqual(requests,[]);
+  const request={target:{matches:selector=>selector==='[data-recovery-request]',
+    elements:{email},closest:()=>view,reportValidity:()=>true},preventDefault(){}};
+  await guest.actions.submit(request);
+  assert.equal(entry.hidden,true);
+  assert.match(guest.notices.at(-1),/太频繁/);
+  await guest.actions.submit(request);
+  assert.deepEqual(requests,[address,address]);
+  assert.equal(entry.hidden,false);
+  assert.equal(hint.hidden,false);
+  assert.equal(codeEmail.value,address);
 });
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];
