@@ -339,6 +339,7 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
+        <p class="subtle">${button('reset-password','重置密码')}</p>
         <details class="reminder-details account-email-change"><summary>更换登录邮箱</summary>
           <form data-email-change method="post">
             <label class="planet-login-field">新邮箱<input class="field" type="email" name="email" required autocomplete="email" maxlength="254"></label>
@@ -352,8 +353,19 @@
     }
     let rememberLogin=true;
     const authStorage={
-      getItem(key){const temporary=sessionStorage.getItem(key);if(temporary!==null)rememberLogin=false;return temporary ?? storage.getItem(key);},
+      getItem(key){
+        const temporary=sessionStorage.getItem(key);
+        if(key.endsWith('-code-verifier'))return storage.getItem(key) ?? temporary;
+        if(temporary!==null)rememberLogin=false;
+        return temporary ?? storage.getItem(key);
+      },
       setItem(key,value){
+        if(key.endsWith('-code-verifier')){
+          // The email may open in a different tab of the same browser.
+          storage.setItem(key,value);
+          sessionStorage.removeItem(key);
+          return;
+        }
         const target=rememberLogin?storage:sessionStorage;
         const other=rememberLogin?sessionStorage:storage;
         target.setItem(key,value);
@@ -467,7 +479,7 @@
           passwordBusy=true;
           try {
             const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
-            toast(error?'暂未发送重置邮件，请稍后重试。':'如果此邮箱已关联账号，请打开密码重置邮件。');
+            toast(error?'暂未发送重置邮件，请稍后重试。':'如果此邮箱已关联账号，请用发起重置时的浏览器打开邮件中的链接。');
           } catch {toast('无法连接登录服务，请稍后重试。');}
           finally {passwordBusy=false;}
           return;
@@ -499,6 +511,7 @@
       document.addEventListener('click',event=>{
         const op=event.target.closest('[data-sync]')?.dataset.sync;
         if(!op||!user)return;
+        if(op==='reset-password')return openPassword(user);
         if(op==='adopt'&&remote&&!busy)adopt(remote);
         if(op==='push')void push();
         if(op==='email-retry'){

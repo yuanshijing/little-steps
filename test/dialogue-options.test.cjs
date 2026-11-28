@@ -610,13 +610,16 @@ function loginHarness(session,auth={}) {
     },
   };
   const window={Planet:P,PlanetV1:V,addEventListener(type,fn){actions[type]=fn;},dispatchEvent(){},
-    supabase:{createClient:()=>({
-      auth:{onAuthStateChange(){},getSession:async()=>({data:{session}}),...auth},
+    supabase:{createClient:(_url,_key,options)=>{
+      actions.authStorage=options.auth.storage;
+      return {
+      auth:{onAuthStateChange(fn){actions.authChange=fn;},getSession:async()=>({data:{session}}),...auth},
       from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:null})})})}),
-    })}};
+    };}}};
   runInNewContext(readFileSync('js/settings-sync.js','utf8'),{window,globalThis:window,document,
     location:{origin:'null',pathname:'/index.html',protocol:'file:'},
-    sessionStorage:{getItem:()=> 'old dismissed flag'},setTimeout:()=>1,clearTimeout(){},
+    sessionStorage:{getItem:key=>key.startsWith('sb-')?null:'old dismissed flag',removeItem(){}},
+    setTimeout:(fn,delay)=>delay===0?setImmediate(fn):1,clearTimeout(){},
     AbortSignal,CustomEvent:class{},FormData:class {constructor(form){this.get=key=>form.fields[key];}},
     fetch:async()=>Response.json({ready:false})});
   const state=P.createState();
@@ -640,6 +643,8 @@ test('guests get the login modal, can dismiss and open it again, and persisted s
   assert.equal(signed.shown.length,0);
   assert.equal(signed.sync.openLogin(),false);
   assert.equal(signed.account.textContent,'fixture@example.test');
+  signed.actions.click({target:{closest:()=>({dataset:{sync:'reset-password'}})}});
+  assert.match(signed.shown.at(-1).innerHTML,/data-password-change[\s\S]*保存新密码/);
   const offline=loginHarness(null);
   offline.actions.error();
   assert.equal(offline.shown.length,1);
@@ -679,6 +684,17 @@ test('a verified replacement address updates the displayed email without changin
   assert.match(signed.sync.panel(),/已登录 new@example\.test/);
   assert.equal(signed.window.PlanetTrial.accountId(),original.id);
   assert.equal(signed.shown.length,0);
+});
+test('recovery callback opens the password form and stores the verifier outside the initiating tab',async()=>{
+  const recovery=loginHarness(null);
+  recovery.actions.load();
+  await wait();
+  const verifier='sb-fixture-auth-token-code-verifier';
+  recovery.actions.authStorage.setItem(verifier,'test-verifier');
+  assert.equal(recovery.actions.authStorage.getItem(verifier),'test-verifier');
+  recovery.actions.authChange('PASSWORD_RECOVERY',{user:{id:'test',email:'fixture@example.test'}});
+  await wait();
+  assert.match(recovery.shown.at(-1).innerHTML,/data-password-change[\s\S]*保存新密码/);
 });
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];
