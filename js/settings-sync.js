@@ -318,11 +318,11 @@
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
           : button('retry','立即同步')}${button('logout','退出登录')}</div>
-        <details class="reminder-details"><summary>更换登录邮箱</summary>
+        <details class="reminder-details account-email-change"><summary>更换登录邮箱</summary>
           <form data-email-change method="post">
             <label class="planet-login-field">新邮箱<input class="field" type="email" name="email" required autocomplete="email" maxlength="254"></label>
             <p class="subtle">请按验证邮件的提示确认。完成后用新邮箱登录原账号。内测与提醒邮件资格按邮箱核对。</p>
-            <button class="secondary" type="submit">发送验证邮件</button>
+            <button class="secondary small" type="submit">发送验证邮件</button>
           </form>
         </details>
         <p class="subtle">账号同步定时提醒设置、晨间语录与音效。具体任务拆解、对话、长期记忆、打卡、积分及复盘保存在此设备。</p>

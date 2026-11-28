@@ -65,6 +65,11 @@ button:focus-visible { outline-color: #9a78df; }
 .reminder-details summary::-webkit-details-marker { display: none; }
 .reminder-details summary::before { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); margin-inline: 3px 2px; }
 .reminder-details[open] > summary::before { transform: rotate(45deg); }
+.account-email-change { max-width: 340px; padding: 6px 9px; margin: 10px 0; }
+.account-email-change summary { min-height: 28px; color: var(--muted); font-size: 13px; }
+.account-email-change .planet-login-field, .account-email-change .subtle { font-size: 12px; }
+.account-email-change .planet-login-field .field { min-height: 36px; padding: 6px 9px; font-size: 13px; }
+@media (max-width: 720px) { .account-email-change .planet-login-field .field { font-size: 16px; } }
 .page-back { margin: 0 0 12px; }
 .coach-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, .38fr); gap: 15px; }
 .section-links { display: grid; gap: 7px; }
