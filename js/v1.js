@@ -336,7 +336,7 @@
   }
   function startReview(v,key) {
     const row = v.reviewPrompts?.[key];
-    if (!row?.pending || v.reviewSession === key) return false;
+    if (!row?.pending || v.reviewSession === key || (row.kind==='daily' && v.reviews[row.day])) return false;
     v.reviewSession = key;
     message(v, row.kind === 'daily' ? '开始睡前复盘' : '开始每周复盘', 'you');
     message(v, row.kind === 'daily' ? '用一两句话说说今天做到了什么，或者哪一步最难。'
@@ -827,7 +827,7 @@
     const review = v.reviewPrompts?.[v.reviewSession];
     if(!review?.pending)return null;
     const today=P.dateKey(now);
-    return (review.kind==='daily' ? review.day===today : monday(review.day)===monday(today)) ? review : null;
+    return (review.kind==='daily' ? review.day===today && !v.reviews[review.day] : monday(review.day)===monday(today)) ? review : null;
   }
   function free(state, input, now = new Date()) {
     const v = init(state);

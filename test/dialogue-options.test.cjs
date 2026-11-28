@@ -463,13 +463,12 @@ test('task actions appear after the composer and above the return button and too
   const markup=ui.markup();
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
-  assert.match(markup,/<\/div><\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
-  const reviewAt=markup.indexOf('<strong>睡前复盘</strong>');
-  const log=markup.slice(markup.indexOf('id="v1-chat"'),reviewAt);
+  assert.match(markup,/<\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
+  const log=markup.slice(markup.indexOf('id="v1-chat"'),markup.indexOf('data-v1-form="chat"'));
   assert.match(log,/class="bubble ai"/);
   assert.doesNotMatch(log,/data-v1="choice"/);
   assert.doesNotMatch(log,/处理这条提醒/);
-  assert.match(markup,/<strong>睡前复盘<\/strong>[\s\S]*开始简短复盘[\s\S]*data-v1-form="chat"[\s\S]*data-v1="choice"[\s\S]*处理这条提醒[\s\S]*>回到正轨<\/button>[\s\S]*>小工具<\/h2>/);
+  assert.match(markup,/data-v1-form="chat"[\s\S]*data-v1="choice"[\s\S]*处理这条提醒[\s\S]*<strong>睡前复盘<\/strong>[\s\S]*开始简短复盘[\s\S]*>回到正轨<\/button>[\s\S]*>小工具<\/h2>/);
   assert.match(log,/开始每周复盘/);
   assert.doesNotMatch(log,/开始简短复盘/);
   ui.dispatch('click',{target:{closest:()=>({dataset:{v1:'choice',value:x.v.active.revision+'/ready'},closest:()=>chat})}});
@@ -762,7 +761,10 @@ test('view: the send button saves current review feedback locally without callin
   await wait();
   assert.equal(calls.length,0);
   assert.equal(x.v.reviews[today].note,'今天读完了一小节。');
-  assert.doesNotMatch(ui.markup(),/填写本次复盘反馈/);
+  assert.doesNotMatch(ui.markup(),/填写本次复盘反馈|<strong>睡前复盘<\/strong>/);
+  x.v.reviewPrompts[key].pending=true;
+  x.v.reviewSession=key;
+  assert.doesNotMatch(ui.markup(),/填写本次复盘反馈|<strong>睡前复盘<\/strong>/);
 });
 test('view: deep reviews request a model only after the explicit action',async()=>{
   const x=start('pm'),calls=[];

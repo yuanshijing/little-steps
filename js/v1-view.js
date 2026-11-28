@@ -138,7 +138,9 @@
       const paused = getState().settings.pausedUntil > Date.now();
       const writingReview = Boolean(V.activeReview(v));
       const reviewPrompts = Object.entries(v.reviewPrompts ?? {})
-        .filter(([,row]) => row.kind === 'daily' ? row.day === date() : V.monday(row.day) === V.monday(date()));
+        .filter(([,row]) => row.kind === 'daily'
+          ? row.day === date() && row.pending && !v.reviews[row.day]
+          : V.monday(row.day) === V.monday(date()));
       const reviewCard = ([key,row]) => `<div class="review-prompt"><strong>${row.kind==='daily'?'睡前复盘':'每周复盘'}</strong>
         <div class="controls">${row.pending && v.reviewSession!==key ? btn('startReview',row.kind==='daily'?'开始简短复盘':'开始每周复盘',key,true) : ''}
         ${row.pending ? btn('dismissReview',row.kind==='daily'?'今晚跳过':'稍后再看',key) : ''}${btn('openReview','查看复盘总结',key)}</div></div>`;
@@ -148,7 +150,6 @@
           `<div class="bubble ${row.role === 'you' ? 'you' : 'ai'}"><span class="bubble-speaker">${row.role === 'you' ? '我' : '小星'}${Object.hasOwn(messageSources, row.source) ? ' · ' + messageSources[row.source] + ' · ' + new Date(row.at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}) : ''}</span>${esc(row.text)}</div>`).join('') || '<p class="subtle">小星会在设定时间主动发消息。你也可以随时主动发消息或求助。</p>'}
         ${reviewPrompts.filter(([,row])=>row.kind==='weekly').map(reviewCard).join('')}
         </div>
-        ${reviewPrompts.filter(([,row])=>row.kind==='daily').map(reviewCard).join('')}
         <form data-v1-form="chat"><label>${writingReview?'填写本次复盘反馈':'和小星聊聊'}<textarea id="v1-input" class="field" name="message" rows="2" maxlength="500" required></textarea></label>
         <div class="controls"><button type="submit" class="primary" ${!writingReview&&(!modelEnabled||modelSending)?'disabled':''}>发送</button>${voiceButton('v1-input')}</div></form>
         <p class="subtle">${writingReview?'发送后记入本次复盘。':modelEnabled?'输入消息会用到 DeepSeek 和相关对话、计划及允许检索的记忆。快捷选项不消耗 Token。':'连接 DeepSeek 后可发送消息，也可以直接点选状态。'}</p>
@@ -163,10 +164,11 @@
           ${btn('outcome','跳过本次','主动跳过')}${btn('outcome','记为未完成','未完成')}
           ${v.settings.times[a.id]?btn('remindOff','关闭该环节提醒'):''}
           ${paused?btn('resume','恢复监督'):btn('pause','暂停监督一小时')}</div>${custom}</details>
-        ${a.id==='sleep' ? btn('tab','查看每日复盘','review') : ''}</section>` : ''}
+        ${a.id==='sleep' && !v.reviews[a.day] ? btn('tab','查看每日复盘','review') : ''}</section>` : ''}
         ${v.queue.filter(row=>row.day===date() && v.records[row.day+'/'+row.id]?.notifiedAt != null).map(row=>
           `<div class="review-prompt chat-pending"><strong>${esc(V.title(v,row.id))} · 待处理</strong>
-          ${btn('open','处理这条提醒',row.id)}</div>`).join('')}`) + timer +
+          ${btn('open','处理这条提醒',row.id)}</div>`).join('')}
+        ${reviewPrompts.filter(([,row])=>row.kind==='daily').map(reviewCard).join('')}`) + timer +
         '<div class="controls chat-message-actions"><button type="button" class="primary chat-return-button" data-v1="open" data-value="return">回到正轨</button></div>' +
         '<aside>' + card('小工具', `<div class="section-links">${btn('emotion','梳理此刻的情绪')}${btn('tab','记个灵感','ideas')}
           <button type="button" class="secondary small" data-act="page" data-target="focus">专注计时</button>
