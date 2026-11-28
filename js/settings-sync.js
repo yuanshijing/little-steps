@@ -328,20 +328,27 @@
     const button=(action,label)=>`<button type="button" class="secondary small" data-sync="${action}">${label}</button>`;
     function panel() {
       if(!enabled)return '<p class="subtle">'+status+'。设置继续保存在当前浏览器。</p>';
-      if(!user)return `<p class="subtle" role="status">${esc(status)}</p><form data-sync-form method="post">
+      if(!user)return `<p class="subtle" role="status">${esc(status)}</p><div data-auth-forms><form data-sync-form method="post">
         <label class="planet-login-field">邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
-        <label class="planet-login-field">密码<input class="field" type="password" name="password" minlength="8" autocomplete="current-password"></label>
+        <label class="planet-login-field">密码<input class="field" type="password" name="password" required autocomplete="current-password"></label>
         <label class="planet-login-remember"><input type="checkbox" name="remember" checked> 在此浏览器保持登录</label>
         <div class="controls"><button class="primary" name="mode" value="login">登录</button>
         <button class="secondary" name="mode" value="register">创建邮箱账号</button>
-        <button class="secondary small" name="mode" value="recover" formnovalidate>忘记密码</button></div></form>
-        <details class="reminder-details" data-recovery-entry><summary>输入邮件验证码</summary>
+        <button class="secondary small" type="button" data-show-recovery>忘记密码</button></div></form>
+        <div data-recovery-view hidden>
+        <form data-recovery-request method="post">
+          <label class="planet-login-field">登录邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
+          <div class="controls"><button class="primary" type="submit">发送重置邮件</button>
+          <button class="secondary" type="button" data-back-to-login>返回登录</button></div>
+        </form>
+        <p class="subtle" data-recovery-hint hidden>请在同一浏览器打开新邮件里的重置链接。</p>
+        <details class="reminder-details" data-recovery-entry hidden><summary>邮件里有六位验证码？</summary>
           <form data-recovery-code method="post">
             <label class="planet-login-field">登录邮箱<input class="field" type="email" name="email" required autocomplete="username"></label>
             <label class="planet-login-field">邮件验证码<input class="field" name="token" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
             <button class="secondary small" type="submit">验证并设置新密码</button>
           </form>
-        </details>`;
+        </details></div></div>`;
       return `<p>已登录 ${esc(user.email)}</p><p class="subtle" role="status">${esc(status)}</p>
         <div class="controls">${pending==='first' ? button('push','上传此设备设置') : pending==='conflict'
           ? button('adopt','使用云端设置')+button('push','上传此设备设置')
@@ -412,6 +419,29 @@
       document.head.append(sdk);
       document.addEventListener('submit',async event=>{
         const form=event.target;
+        if(form.matches('[data-recovery-request]')){
+          event.preventDefault();
+          if(!client){toast(status);return;}
+          if(passwordBusy)return;
+          const email=form.elements.email.value.trim();
+          if(!email || !form.reportValidity())return;
+          const view=form.closest('[data-recovery-view]');
+          const entry=view.querySelector('[data-recovery-entry]');
+          const hint=view.querySelector('[data-recovery-hint]');
+          passwordBusy=true;
+          try {
+            const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
+            if(error)return toast(error.status===429?'重置邮件申请太频繁，请稍后再试。':
+              error.code==='email_address_not_authorized'?'发信服务暂未开放给此邮箱，请联系管理员。':
+              '重置邮件未能发送，请稍后重试。');
+            entry.querySelector('[name="email"]').value=email;
+            entry.hidden=false;
+            hint.hidden=false;
+            toast('请查收重置邮件。');
+          } catch {toast('无法连接登录服务，请稍后重试。');}
+          finally {passwordBusy=false;}
+          return;
+        }
         if(form.matches('[data-recovery-code]')){
           event.preventDefault();
           if(!client || passwordBusy)return;
@@ -498,29 +528,8 @@
         if(!client){toast(status);return;}
         const fields=new FormData(form);
         const email=String(fields.get('email')).trim(),password=String(fields.get('password'));
-        if(event.submitter?.value==='recover'){
-          const field=form.elements.email;
-          if(!email || !field.checkValidity())return field.reportValidity();
-          if(passwordBusy)return;
-          passwordBusy=true;
-          try {
-            const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
-            if(error){
-              toast(error.status===429?'重置邮件申请太频繁，请稍后再试。':'暂未发送重置邮件，请稍后重试。');
-            } else {
-              const entry=form.nextElementSibling;
-              if(entry?.matches('[data-recovery-entry]')){
-                entry.open=true;
-                if(!entry.querySelector('[name="email"]').value)entry.querySelector('[name="email"]').value=email;
-              }
-              toast('请查收密码重置邮件。可以输入邮件里的验证码，或用发起申请的浏览器打开邮件链接。');
-            }
-          } catch {toast('无法连接登录服务，请稍后重试。');}
-          finally {passwordBusy=false;}
-          return;
-        }
-        if(password.length<8)return toast('请输入至少 8 个字符的密码。');
         const register=event.submitter?.value==='register';
+        if(register && password.length<8)return toast('请设置至少 8 个字符的密码。');
         rememberLogin=fields.has('remember');
         try {
           const result=register?await client.auth.signUp({email,password,options:{emailRedirectTo:redirect}})
@@ -544,6 +553,23 @@
         if(event.target.matches('[data-reminder-email]'))void setEmailPreference(event.target.checked);
       });
       document.addEventListener('click',event=>{
+        const navigation=event.target.closest('[data-show-recovery], [data-back-to-login]');
+        if(navigation){
+          const forms=navigation.closest('[data-auth-forms]');
+          const login=forms.querySelector('[data-sync-form]');
+          const recovery=forms.querySelector('[data-recovery-view]');
+          const showRecovery=navigation.hasAttribute('data-show-recovery');
+          login.hidden=showRecovery;
+          recovery.hidden=!showRecovery;
+          const email=recovery.querySelector('[name="email"]');
+          if(showRecovery){
+            if(!email.value)email.value=login.elements.email.value;
+            email.focus();
+          } else {
+            login.elements.email.focus();
+          }
+          return;
+        }
         const op=event.target.closest('[data-sync]')?.dataset.sync;
         if(!op||!user)return;
         if(op==='reset-password')return openPassword(user);
