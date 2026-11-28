@@ -175,11 +175,6 @@
     }
     let emailEnabled,emailBusy=false,emailEligible=null,emailError='',accountVersion=0;
     let emailChangeBusy=false,passwordBusy=false,passwordAccount=null;
-    const passwordKey=id=>'little-steps-password-after-email/'+id;
-    function needsPassword(account){
-      try{return storage.getItem(passwordKey(account.id))===account.email?.toLowerCase();}
-      catch{return false;}
-    }
     function openPassword(account) {
       if(!account || passwordAccount===account.id)return;
       passwordAccount=account.id;
@@ -310,7 +305,6 @@
           if(entry)entry.textContent=user.email;
           redraw();
           void refreshTrial();
-          if(needsPassword(user))openPassword(user);
         }
         return;
       }
@@ -328,7 +322,6 @@
       status=user?'正在检查云端设置…':'使用邮箱账号同步设置';
       redraw();
       if(user){
-        if(needsPassword(user))openPassword(user);
         void pull();void readEmailPreference();
       }
     }
@@ -349,11 +342,11 @@
         <details class="reminder-details account-email-change"><summary>更换登录邮箱</summary>
           <form data-email-change method="post">
             <label class="planet-login-field">新邮箱<input class="field" type="email" name="email" required autocomplete="email" maxlength="254"></label>
-            <p class="subtle">请按验证邮件的提示确认，再设置新密码。原账号的同步设置会继续使用。</p>
+            <label class="planet-login-field">当前小步星球密码<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+            <p class="subtle">请确认旧邮箱和新邮箱收到的验证邮件。</p>
             <button class="secondary small" type="submit">发送验证邮件</button>
           </form>
         </details>
-        <div class="controls">${button('password','设置新密码')}</div>
         <p class="subtle">账号同步定时提醒设置、晨间语录与音效。具体任务拆解、对话、长期记忆、打卡、积分及复盘保存在此设备。</p>
         ${emailPreferencePanel()}`;
     }
@@ -411,7 +404,6 @@
             const {error}=await client.auth.updateUser({password});
             if(user?.id!==id)return;
             if(error)return toast(error.code==='same_password'?'请使用与原密码不同的新密码。':'未能保存新密码，请检查密码规则或重新打开重置邮件。');
-            try{storage.removeItem(passwordKey(id));}catch{}
             form.closest('dialog')?.close();
             toast('新密码已保存。');
           } catch { toast('无法连接登录服务，请稍后重试。'); }
@@ -421,12 +413,21 @@
         if(form.matches('[data-email-change]')){
           event.preventDefault();
           if(!client || !user || emailChangeBusy)return;
-          const email=String(new FormData(form).get('email')??'').trim().toLowerCase();
+          const fields=new FormData(form);
+          const email=String(fields.get('email')??'').trim().toLowerCase();
+          const password=String(fields.get('password')??'');
           if(!email || email===user.email?.toLowerCase())return toast('请输入与当前邮箱不同的新邮箱。');
-          const id=user.id, submit=form.querySelector('button[type="submit"]');
+          if(!password)return toast('请输入当前小步星球密码。');
+          const {id,email:currentEmail}=user, submit=form.querySelector('button[type="submit"]');
           emailChangeBusy=true;
           if(submit)submit.disabled=true;
           try {
+            const verification=await client.auth.signInWithPassword({email:currentEmail,password});
+            if(user?.id!==id || user.email!==currentEmail)return;
+            if(verification.error || verification.data?.user?.id!==id){
+              return toast(verification.error?.status===429?'验证次数过多，请稍后再试。':
+                verification.error?.code==='invalid_credentials'?'当前小步星球密码不正确。':'暂时无法验证当前密码，请稍后重试。');
+            }
             const {data,error}=await client.auth.updateUser({email},{emailRedirectTo:redirect});
             if(user?.id!==id)return;
             if(error){
@@ -439,18 +440,18 @@
               })[error.code]??'未能发送验证邮件，请稍后再试。');
               return;
             }
-            try{storage.setItem(passwordKey(id),email);}catch{}
             form.reset();
             if(data?.user?.id===id && data.user.email?.toLowerCase()===email){
               sessionChanged({user:data.user});
-              openPassword(data.user);
-              toast('登录邮箱已更换，请设置新密码。');
-            } else toast('请按邮件提示完成邮箱验证，然后回到小步星球设置新密码。');
+              toast('登录邮箱已更换。');
+            } else toast('请确认旧邮箱和新邮箱收到的验证邮件，然后用新邮箱和原密码登录。');
           } catch {
             if(user?.id===id)toast('无法连接登录服务，请稍后重试。');
           } finally {
             emailChangeBusy=false;
             if(submit)submit.disabled=false;
+            const passwordField=form.elements?.password;
+            if(passwordField)passwordField.value='';
           }
           return;
         }
@@ -498,7 +499,6 @@
       document.addEventListener('click',event=>{
         const op=event.target.closest('[data-sync]')?.dataset.sync;
         if(!op||!user)return;
-        if(op==='password')return openPassword(user);
         if(op==='adopt'&&remote&&!busy)adopt(remote);
         if(op==='push')void push();
         if(op==='email-retry'){

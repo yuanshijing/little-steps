@@ -71,7 +71,6 @@ button:focus-visible { outline-color: #9a78df; }
 .account-email-change .planet-login-field .field { min-height: 36px; padding: 6px 9px; font-size: 13px; }
 @media (max-width: 720px) { .account-email-change .planet-login-field .field { font-size: 16px; } }
 .page-back { margin: 0 0 12px; }
-.coach-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, .38fr); gap: 15px; }
 .section-links { display: grid; gap: 7px; }
 .section-links button { text-align: left; min-height: 40px; }
 .bubble-speaker { display: block; font-size: 11px; font-weight: 800; color: #584779; margin-bottom: 3px; }
@@ -135,7 +134,7 @@ button:focus-visible { outline-color: #9a78df; }
   border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 6px 24px #3c255424; }
 .plan-checkins .plan-checkin[aria-pressed="true"] { background: var(--lav2); border-color: var(--lav); }
 .plan-task-controls .plan-chat-action, .plan-task-controls:not(:has(.plan-chat-action)) > .reminder-minus { margin-inline-start: auto; }
-.chat-message-actions { margin-top: 10px; }
+.chat-message-actions { margin: 10px 0 14px; }
 .chat-message-actions .chat-return-button { min-height: 42px; padding: 9px 16px; font-size: 14px;
   background: #4f3288; border-color: #4f3288; }
 .chat-message-actions .chat-return-button:hover { background: #3f286d; border-color: #3f286d; }
@@ -229,7 +228,6 @@ button:focus-visible { outline-color: #9a78df; }
   .nav-icon { font-size: 17px; }
 }
 @media (max-width: 630px) {
-  .coach-layout { grid-template-columns: minmax(0,1fr); gap: 0; }
   .surface { padding: 15px; }
   .sky-summary { padding: 17px; flex-wrap: wrap; gap: 15px; }
   .sky-summary dl { width: 100%; justify-content: space-between; gap: 8px; }

@@ -450,7 +450,7 @@ test('memory uses examples and accepts manual entries without a source classific
   assert.equal(Object.hasOwn(x.v.memory.at(-1),'source'),false);
   assert.deepEqual(V.modelContext(x.state,'').memories,[{text:'原有记忆'},{text:'一次给我一步'}]);
 });
-test('fixed choices and bedtime review sit between the message log and the composer',()=>{
+test('task actions appear after the composer and above the return button and tools',()=>{
   const chat={scrollHeight:420,scrollIntoView(){this.revealed=true;}};
   const x=start('pm'),ui=mount(x.state,undefined,false,{'v1-chat':chat});
   const today=P.dateKey();
@@ -464,22 +464,18 @@ test('fixed choices and bedtime review sit between the message log and the compo
   assert.match(markup,/chat-message-actions[^\n]*data-v1="open"[^\n]*回到正轨/);
   assert.equal((markup.match(/>回到正轨<\/button>/g)??[]).length,1);
   assert.match(markup,/<\/div><\/div>\s*<form data-v1-form="chat"><label>和小星聊聊/);
-  const choicesAt=markup.indexOf('<section class="chat-choices"');
-  const log=markup.slice(markup.indexOf('id="v1-chat"'),choicesAt);
+  const reviewAt=markup.indexOf('<strong>睡前复盘</strong>');
+  const log=markup.slice(markup.indexOf('id="v1-chat"'),reviewAt);
   assert.match(log,/class="bubble ai"/);
-  assert.match(log,/<\/div><\/div>\s*<\/div>\s*$/);
   assert.doesNotMatch(log,/data-v1="choice"/);
-  const beforeComposer=markup.slice(choicesAt,markup.indexOf('data-v1-form="chat"'));
-  assert.match(beforeComposer,/data-v1="choice"[\s\S]*<strong>睡前复盘<\/strong>[\s\S]*开始简短复盘/);
-  assert.match(log,/处理这条提醒/);
+  assert.doesNotMatch(log,/处理这条提醒/);
+  assert.match(markup,/<strong>睡前复盘<\/strong>[\s\S]*开始简短复盘[\s\S]*data-v1-form="chat"[\s\S]*data-v1="choice"[\s\S]*处理这条提醒[\s\S]*>回到正轨<\/button>[\s\S]*>小工具<\/h2>/);
   assert.match(log,/开始每周复盘/);
   assert.doesNotMatch(log,/开始简短复盘/);
-  assert.doesNotMatch(markup.slice(markup.indexOf('data-v1-form="chat"')),/data-v1="choice"/);
   ui.dispatch('click',{target:{closest:()=>({dataset:{v1:'choice',value:x.v.active.revision+'/ready'},closest:()=>chat})}});
   assert.equal(x.v.active.stage,'begin');
   assert.equal(chat.scrollTop,420);
   assert.match(markup,/class="primary chat-return-button"/);
-  assert.match(markup,/<\/aside><\/div><div class="controls chat-message-actions"[^\n]*<\/div>$/);
   assert.match(markup,/>小工具<\/h2>[\s\S]*?<\/section><button type="button" class="chat-reminder-link"[^>]*>查看主动提醒<\/button>/);
   assert.match(markup,/data-target="focus">专注计时<\/button>/);
   ui.click('open','return');
@@ -652,28 +648,37 @@ test('guests get the login modal, can dismiss and open it again, and persisted s
 test('a verified replacement address updates the displayed email without changing account identity',async()=>{
   const original={id:'test',email:'old@example.test'};
   const replacement={id:original.id,email:'new@example.test'};
-  const changes=[];
+  const changes=[], verifications=[];
   const signed=loginHarness({user:original},{
+    async signInWithPassword({email,password}){
+      verifications.push(email);
+      return password==='fixture-password'?{data:{user:original}}:{error:{code:'invalid_credentials'}};
+    },
     async updateUser({email},{emailRedirectTo}){changes.push([email,emailRedirectTo]);return {data:{user:original}};},
     async getUser(){return {data:{user:replacement}};},
   });
   signed.actions.load();
   await wait();
   assert.match(signed.sync.panel(),/更换登录邮箱/);
-  const form={matches:selector=>selector==='[data-email-change]',fields:{email:'OLD@example.test'},querySelector:()=>null,reset(){}};
+  const form={matches:selector=>selector==='[data-email-change]',fields:{email:'OLD@example.test',password:'wrong'},querySelector:()=>null,reset(){}};
   await signed.actions.submit({target:form,preventDefault(){}});
   assert.equal(changes.length,0);
   form.fields.email=' New@example.test ';
   await signed.actions.submit({target:form,preventDefault(){}});
+  assert.equal(changes.length,0);
+  assert.match(signed.notices.at(-1),/密码不正确/);
+  form.fields.password='fixture-password';
+  await signed.actions.submit({target:form,preventDefault(){}});
+  assert.deepEqual(verifications,[original.email,original.email]);
   assert.deepEqual(changes,[['new@example.test','https://yuanshijing.github.io/little-steps/']]);
-  assert.match(signed.notices.at(-1),/完成邮箱验证.*设置新密码/);
+  assert.match(signed.notices.at(-1),/验证邮件.*原密码登录/);
   assert.equal(signed.account.textContent,original.email);
   signed.actions.focus();
   await wait();
   assert.equal(signed.account.textContent,replacement.email);
   assert.match(signed.sync.panel(),/已登录 new@example\.test/);
   assert.equal(signed.window.PlanetTrial.accountId(),original.id);
-  assert.match(signed.shown.at(-1).innerHTML,/设置新密码/);
+  assert.equal(signed.shown.length,0);
 });
 test('view: fixed options make zero requests and each explicit AI send makes one',async()=>{
   const x=start('pm'),calls=[];
