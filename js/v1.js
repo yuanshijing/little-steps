@@ -251,10 +251,15 @@
     const dependency=parent && !parent.done ? (task.strictDependency?'开始前需先完成':'如果方便，可以先做')+'「'+parent.title+'」。':'';
     return [intro, quote, list, dependency].filter(Boolean).join('\n\n');
   }
+  function scheduledText(v,item,now,text) {
+    const time=v.settings.times[item.id]?.time;
+    return P.timeOk(time) && now.getTime() >= P.dueAt(item.day,time) + 30*M
+      ? '补发 ' + time + ' 的提醒。\n\n' + text : text;
+  }
   function announceScheduled(state,v,item,now,queued = true) {
     if (item.notifiedAt != null) return false;
     item.notifiedAt = now.getTime();
-    message(v, reminderText(state,v,item,now) + (queued ? '\n\n这条提醒已放入待处理。' : ''),
+    message(v, scheduledText(v,item,now,reminderText(state,v,item,now)) + (queued ? '\n\n这条提醒已放入待处理。' : ''),
       'coach', {source:'schedule',reminderId:item.id,at:item.notifiedAt});
     event(v,queued ? 'reminder_queued' : 'reminder',now,{id:item.id,key:item.key,source:'schedule'});
     return true;
@@ -268,7 +273,8 @@
     const alreadyAnnounced = (source === 'schedule'||source==='queued') && item.notifiedAt != null;
     if (source === 'schedule' && !alreadyAnnounced) item.notifiedAt = now.getTime();
     v.active.initialPrompt = reminderText(state,v,item,now);
-    if(!alreadyAnnounced)message(v, v.active.initialPrompt, 'coach', {source,thread:v.active.thread,reminderId:item.id,at:now.getTime()});
+    if(!alreadyAnnounced)message(v, source==='schedule' ? scheduledText(v,item,now,v.active.initialPrompt) : v.active.initialPrompt,
+      'coach', {source,thread:v.active.thread,reminderId:item.id,at:now.getTime()});
     event(v, alreadyAnnounced?'reminder_opened':'reminder', now, { id: item.id, key: item.key, source });
     return true;
   }
@@ -680,10 +686,12 @@
       const next = v.queue.shift();
       changed = open(state,next.id,now,next.source==='schedule'?'queued':next.source) || changed;
     }
-    for (const id of reminderIds(v).sort((a,b)=>v.settings.times[a].time.localeCompare(v.settings.times[b].time))) {
-      const setting = v.settings.times[id];
-      const due = P.dueAt(day, setting.time);
-      if (!setting.enabled || time < due || time >= due + 30*M) continue;
+    const dueReminders=reminderIds(v).filter(id=>v.settings.times[id].enabled)
+      .map(id=>({id,due:P.dueAt(day,v.settings.times[id].time)}))
+      .filter(row=>row.due<=time);
+    const overdue=row=>Number(time >= row.due + 30*M);
+    dueReminders.sort((a,b)=>overdue(a)-overdue(b) || a.due-b.due);
+    for (const {id} of dueReminders) {
       const pending = v.queue.find(row=>row.id===id && row.day===day);
       const recordForToday = v.records[day+'/'+id];
       if (pending) changed = announceScheduled(state,v,record(v,day,id),now) || changed;
@@ -693,7 +701,7 @@
     }
     const sleep = v.settings.times.sleep;
     const sleepDue = P.dueAt(day,sleep.time);
-    if (sleep.enabled && !sleep.removed && time >= sleepDue && time < sleepDue + 30*M) {
+    if (sleep.enabled && !sleep.removed && time >= sleepDue) {
       changed = Boolean(promptReview(v,'daily',day,now)) || changed;
     }
     return changed;

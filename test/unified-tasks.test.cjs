@@ -147,6 +147,21 @@ test('queue preserves time order during existing conversation and deep focus, wi
   assert.equal(v.messages.filter(row=>row.source==='schedule').length,2);
 });
 
+test('a resumed page catches up missed reminders without replacing an on-time conversation',()=>{
+  const {state,v}=create();
+  const older=V.reminderId(save(state,{when:'10:00'}));
+  const current=V.reminderId(save(state,{when:'11:30'}));
+  V.setFixedReminder(v,'sleep',{enabled:true,time:'10:10'},at(27));
+  V.tick(state,at(27,11,30));
+  assert.equal(v.active.id,current);
+  assert.deepEqual(v.queue.map(row=>row.id),[older,'sleep']);
+  assert.match(v.messages.find(row=>row.reminderId===older).text,/补发 10:00/);
+  assert.ok(v.messages.some(row=>row.reviewKind==='daily'));
+  V.tick(state,at(27,11,31));
+  assert.equal(v.messages.filter(row=>row.source==='schedule').length,3);
+  assert.equal(v.messages.filter(row=>row.reviewKind==='daily').length,1);
+});
+
 test('settings sync shares reminder schedule only and transports weekly weekday for email',()=>{
   const {state}=create();
   const shared=save(state,{repeat:'weekly',sharedReminder:true,firstStep:'私密草稿'});
